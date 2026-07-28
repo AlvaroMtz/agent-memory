@@ -1,0 +1,19 @@
+# Sample scenarios: extraction dataset
+# Each file defines an EvaluationScenario.
+# Run with: agent-memory scenario run datasets/
+name: preference-extraction
+description: "User states a language preference → extractor should find it"
+context:
+  tenant_id: "demo"
+  subject_id: "alice"
+  purpose: "testing"
+messages:
+  - id: "m1"
+    role: "user"
+    content: "Prefiero TypeScript para los ejemplos"
+tags:
+  - extraction
+  - preference
+expected_candidates:
+  - predicate: "response_language"
+    value: "TypeScript"

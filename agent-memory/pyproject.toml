@@ -1,0 +1,120 @@
+[project]
+name = "agent-memory"
+version = "0.0.1"
+description = "Governed Long-Term Memory for AI Agents"
+requires-python = ">=3.11"
+readme = "README.md"
+license = { file = "LICENSE" }
+keywords = ["memory", "ai-agents", "llm", "langchain", "langgraph", "memory-management"]
+authors = [
+    { name = "agent-memory contributors" },
+]
+
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+dependencies = [
+    "pydantic>=2.10,<3",
+    "sqlalchemy[asyncio]>=2.0,<3",
+    "psycopg[binary]>=3.2,<4",
+    "alembic>=1.14,<2",
+    "typing_extensions>=4.12,<5",
+    "pyyaml>=6.0,<7",
+    "click>=8.1,<9",
+]
+
+[project.optional-dependencies]
+langchain = [
+    "langchain>=0.3,<1",
+    "langgraph>=0.4,<1",
+]
+lab = [
+    "fastapi>=0.115,<1",
+    "uvicorn[standard]>=0.34,<1",
+    "jinja2>=3.1,<4",
+    "python-multipart>=0.0.18",
+    "aiofiles>=24.1,<25",
+]
+crypto = [
+    "cryptography>=44,<45",
+]
+otel = [
+    "opentelemetry-api>=1.30,<2",
+    "opentelemetry-sdk>=1.30,<2",
+]
+test = [
+    "pytest>=8.3,<9",
+    "pytest-asyncio>=0.25,<1",
+    "pytest-cov>=6.1,<1",
+    "hypothesis>=6.125,<7",
+    "testcontainers>=4.9,<5",
+    "syrupy>=4.9,<1",
+    "ruff>=0.11,<1",
+    "mypy>=1.15,<2",
+]
+dev = [
+    "agent-memory[langchain,lab,crypto,otel,test]",
+]
+
+all = [
+    "agent-memory[langchain,lab,crypto,otel,test]",
+]
+
+[project.urls]
+homepage = "https://github.com/agent-memory/agent-memory"
+repository = "https://github.com/agent-memory/agent-memory"
+documentation = "https://agent-memory.dev"
+
+[project.scripts]
+agent-memory = "agent_memory.cli.main:app"
+
+[project.entry-points."agent_memory.backends"]
+postgres = "agent_memory.postgres:PostgresBackendFactory"
+in_memory = "agent_memory.providers:InMemoryBackendFactory"
+
+[project.entry-points."agent_memory.extractors"]
+fake = "agent_memory.providers:FakeExtractorFactory"
+rules = "agent_memory.providers:RuleBasedExtractorFactory"
+langchain = "agent_memory.providers:LangChainExtractorFactory"
+
+[project.entry-points."agent_memory.embedders"]
+deterministic = "agent_memory.providers:DeterministicEmbeddingFactory"
+
+[project.entry-points."agent_memory.encryption"]
+noop = "agent_memory.crypto:NoopEncryptionFactory"
+aes-gcm = "agent_memory.crypto:AESGCMEncryptionFactory"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["agent_memory*"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "B", "SIM", "ARG"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+disallow_untyped_defs = true
+ignore_missing_imports = true
+warn_unused_ignores = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
