@@ -1,0 +1,34 @@
+name: agent-memory-v0.0.1
+title: "agent-memory v0.0.1 — Governed Long-Term Memory for AI Agents"
+status: verified
+description: |
+  All SDD phases completed and verified.
+
+  Artifacts:
+  - openspec/specs/agent-memory-v0.0.1-proposal.md
+  - openspec/specs/agent-memory-v0.0.1-spec.md (15 ACs)
+  - openspec/specs/agent-memory-v0.0.1-design.md (12 ADRs, data model, RLS, security)
+  - openspec/specs/agent-memory-v0.0.1-tasks.md (55 tasks, 8 phases)
+  - openspec/changes/agent-memory-v0.0.1/verify-report.md
+
+  Verification: 10/15 ACs fully pass, 5 partial (documented in verify-report).
+  - Full pass: AC-1 (multi-tenant), AC-2 (consent), AC-3 (hallucination control),
+    AC-4 (evidence/versioning), AC-7 (security), AC-8 (encryption), AC-9 (audit),
+    AC-11 (Memory Lab), AC-13 (plugin architecture), AC-15 (production hardening)
+  - Partial: AC-5 (contradiction wiring), AC-6 (hybrid search PG-only),
+    AC-10 (metric calculators), AC-12 (CLI subcommands), AC-14 (datasets)
+
+  All 6 commits, 257 tests passing, ~80 source files.
+
+  Commits (oldest→newest):
+  - 6edee49 — Wave 1: Domain, Contracts & Deterministic Providers
+  - 4483607 — Wave 2: PostgreSQL Backend & Consent/Security
+  - cd21943 — Wave 3: Extraction and Retrieval pipeline
+  - 9ec16e2 — Wave 4: Memory Lab and LangChain Integration
+  - d98c033 — Wave 5: Packaging, CLI, Release
+  - 65a0126 — T8.11/T8.12: Dataset eval CI, all examples
+
+  Next: sdd-sync → sdd-archive
+priority: high
+started_at: 2026-07-28
+completed_at: 2026-07-28
