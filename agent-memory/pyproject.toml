@@ -23,6 +23,7 @@ classifiers = [
 
 dependencies = [
     "pydantic>=2.10,<3",
+    "pydantic-settings>=2.7,<3",
     "sqlalchemy[asyncio]>=2.0,<3",
     "psycopg[binary]>=3.2,<4",
     "alembic>=1.14,<2",
@@ -53,10 +54,10 @@ otel = [
 test = [
     "pytest>=8.3,<9",
     "pytest-asyncio>=0.25,<1",
-    "pytest-cov>=6.1,<1",
+    "pytest-cov>=6.1,<8",
     "hypothesis>=6.125,<7",
     "testcontainers>=4.9,<5",
-    "syrupy>=4.9,<1",
+    "syrupy>=4.9",
     "ruff>=0.11,<1",
     "mypy>=1.15,<2",
 ]
@@ -117,4 +118,4 @@ pythonpath = ["src"]
 
 [build-system]
 requires = ["setuptools>=75", "wheel"]
-build-backend = "setuptools.backends._legacy:_Backend"
+build-backend = "setuptools.build_meta"

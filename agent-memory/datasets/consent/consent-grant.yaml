@@ -1,0 +1,189 @@
+# Consent grant scenario — standard consent grant and write/read operations
+
+scenarios:
+  - name: grant_full_consent_then_write_and_read
+    description: >
+      Grant full write+read consent, then write a memory and retrieve it.
+      Verifies that consent allows both operations.
+    context:
+      tenant_id: tenant-a
+      subject_id: subject-1
+      actor_id: actor-1
+      purpose: profiling
+
+    consent:
+      purpose: profiling
+      allow_write: true
+      allow_read: true
+      allowed_memory_types:
+        - preference
+        - semantic
+      allowed_sensitivity:
+        - public
+        - internal
+
+    messages:
+      - id: msg-1
+        role: user
+        content: My preferred language is Spanish.
+
+    expected_candidates:
+      - memory_type: preference
+        subject_key: language
+        predicate: response_language
+        value: Spanish
+        source_message_id: msg-1
+        explicitly_stated: true
+        sensitivity: public
+
+    expected_memories:
+      - memory_type: preference
+        subject_key: language
+        predicate: response_language
+        value: Spanish
+        status: active
+        version: 1
+
+    expected_queries:
+      - description: Retrieve language preference
+        memory_type: preference
+        subject_key: language
+        min_results: 0
+
+
+  - name: grant_write_only_consent
+    description: >
+      Grant write-only consent. Write is allowed but read is denied.
+    context:
+      tenant_id: tenant-a
+      subject_id: subject-1
+      actor_id: actor-1
+      purpose: profiling
+
+    consent:
+      purpose: profiling
+      allow_write: true
+      allow_read: false
+      allowed_memory_types:
+        - preference
+      allowed_sensitivity:
+        - public
+        - internal
+
+    messages:
+      - id: msg-1
+        role: user
+        content: I prefer short responses.
+
+    expected_candidates:
+      - memory_type: preference
+        subject_key: response
+        predicate: response_length
+        value: short
+        source_message_id: msg-1
+        explicitly_stated: true
+        sensitivity: public
+
+    expected_memories:
+      - memory_type: preference
+        subject_key: response
+        predicate: response_length
+        value: short
+        status: active
+        version: 1
+
+
+  - name: grant_read_only_consent
+    description: >
+      Grant read-only consent. Read is allowed but write is denied.
+    context:
+      tenant_id: tenant-a
+      subject_id: subject-1
+      actor_id: actor-1
+      purpose: profiling
+
+    consent:
+      purpose: profiling
+      allow_write: false
+      allow_read: true
+      allowed_memory_types:
+        - preference
+        - semantic
+      allowed_sensitivity:
+        - public
+        - internal
+
+    messages: []
+
+    expected_queries:
+      - description: Read-only consent should allow retrieval of existing memories
+        min_results: 0
+
+
+  - name: grant_consent_with_retention_limit
+    description: >
+      Grant consent with a 30-day retention limit. Memories are created
+      under this consent and tracked accordingly.
+    context:
+      tenant_id: tenant-a
+      subject_id: subject-1
+      actor_id: actor-1
+      purpose: temporary
+
+    consent:
+      purpose: temporary
+      allow_write: true
+      allow_read: true
+      allowed_memory_types:
+        - preference
+      allowed_sensitivity:
+        - public
+      retention_days: 30
+
+    messages:
+      - id: msg-1
+        role: user
+        content: Use formal language please.
+
+    expected_candidates:
+      - memory_type: preference
+        subject_key: language
+        predicate: response_language
+        value: formal
+        source_message_id: msg-1
+        explicitly_stated: true
+        sensitivity: public
+
+    expected_memories:
+      - memory_type: preference
+        subject_key: language
+        predicate: response_language
+        value: formal
+        status: active
+        version: 1
+
+
+  - name: no_consent_blocks_write_and_read
+    description: >
+      Without any consent grant, write and read operations are denied.
+    context:
+      tenant_id: tenant-a
+      subject_id: subject-2
+      actor_id: actor-1
+      purpose: profiling
+
+    consent:
+      purpose: profiling
+      allow_write: false
+      allow_read: false
+      allowed_memory_types: []
+      allowed_sensitivity: []
+
+    messages:
+      - id: msg-1
+        role: user
+        content: I like Python.
+
+    expected_candidates: []
+    expected_memories: []
+    expected_to_fail: true
