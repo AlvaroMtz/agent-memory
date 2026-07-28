@@ -142,7 +142,11 @@ class InMemoryBackend:
         limit: int = 8,
         token_budget: int = 1200,
     ) -> list[RetrievedMemory]:
+        from datetime import datetime, timezone
+
         results: list[RetrievedMemory] = []
+        now = datetime.now(timezone.utc)
+
         for record in self._memories.values():
             if record.tenant_id != tenant_id:
                 continue
@@ -163,10 +167,23 @@ class InMemoryBackend:
             if not version:
                 continue
 
-            # Simple lexical match
-            score = 0.5
-            if query.lower() in version.searchable_summary.lower() or query.lower() in str(version.value).lower():
-                score = 0.9
+            # ── Vector search (dot product) ───────────────────────────────
+            vector_score = self._compute_vector_similarity(query, version)
+
+            # ── Lexical search (word overlap) ─────────────────────────────
+            lexical_score = self._compute_lexical_similarity(query, version)
+
+            # ── Recency score (decay over time) ───────────────────────────
+            age_hours = (now - version.created_at).total_seconds() / 3600.0
+            recency_score = max(0.0, 1.0 - age_hours / 720.0)  # half-life ~30 days
+
+            # ── Compute fused score ───────────────────────────────────────
+            fused = (
+                vector_score * 0.4
+                + lexical_score * 0.3
+                + recency_score * 0.15
+                + version.confidence * 0.15
+            )
 
             results.append(
                 RetrievedMemory(
@@ -175,8 +192,13 @@ class InMemoryBackend:
                     memory_type=record.memory_type,
                     predicate=record.predicate,
                     value=version.value,
-                    score=score,
-                    score_breakdown={"lexical": score, "vector": 0.0, "recency": 1.0, "confidence": version.confidence},
+                    score=round(fused, 4),
+                    score_breakdown={
+                        "vector": round(vector_score, 4),
+                        "lexical": round(lexical_score, 4),
+                        "recency": round(recency_score, 4),
+                        "confidence": round(version.confidence, 4),
+                    },
                     confidence=version.confidence,
                     source_type=version.source_type,
                     sensitivity=version.sensitivity,
@@ -186,9 +208,61 @@ class InMemoryBackend:
                 )
             )
 
-        # Sort by score descending, limit
+        # Sort by descending fused score, limit
         results.sort(key=lambda r: r.score, reverse=True)
         return results[:limit]
+
+    def _compute_vector_similarity(self, query: str, version: MemoryVersion) -> float:
+        """Compute vector similarity between query and version embedding.
+
+        Uses word-overlap (set intersection) as a simple vector proxy.
+        When numpy is available, uses dot product on one-hot encoded vectors.
+        """
+        if not query:
+            return 0.0
+
+        query_words = set(query.lower().split())
+        version_text = f"{version.searchable_summary} {version.value}".lower()
+        version_words = set(version_text.split())
+
+        if not query_words or not version_words:
+            return 0.0
+
+        try:
+            import numpy as np
+            all_words = list(query_words | version_words)
+            if not all_words:
+                return 0.0
+            q_vec = np.array([1.0 if w in query_words else 0.0 for w in all_words], dtype=float)
+            v_vec = np.array([1.0 if w in version_words else 0.0 for w in all_words], dtype=float)
+            norm_q = np.linalg.norm(q_vec)
+            norm_v = np.linalg.norm(v_vec)
+            if norm_q == 0 or norm_v == 0:
+                return 0.0
+            return float(np.dot(q_vec, v_vec) / (norm_q * norm_v))
+        except ImportError:
+            # Fallback: Jaccard similarity
+            intersection = query_words & version_words
+            union = query_words | version_words
+            return len(intersection) / len(union) if union else 0.0
+
+    def _compute_lexical_similarity(self, query: str, version: MemoryVersion) -> float:
+        """Compute lexical (keyword) similarity.
+
+        Uses TF-style scoring: count query terms found in the version text,
+        normalized by query length.
+        """
+        if not query:
+            return 0.0
+
+        query_terms = query.lower().split()
+        version_text = f"{version.predicate} {version.searchable_summary} {version.value}".lower()
+
+        if not query_terms:
+            return 0.0
+
+        match_count = sum(1 for term in query_terms if term in version_text)
+        return match_count / len(query_terms)
 
     # ── Consent ─────────────────────────────────────────────────────────────
 

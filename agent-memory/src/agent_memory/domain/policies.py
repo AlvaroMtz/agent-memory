@@ -165,21 +165,34 @@ def validate_context_present(tenant_id: str | None) -> None:
 def classify_contradiction(
     existing: MemoryRecord,
     candidate: MemoryCandidate,
+    existing_value: object | None = None,
 ) -> str:
     """Classify the relationship between an existing memory and a new candidate.
 
+    Args:
+        existing: The existing memory record.
+        candidate: The new candidate.
+        existing_value: Optional existing version value for value comparison.
+                        If not provided, only predicate/subject_key are compared
+                        (all same-key candidates are classified as duplicate).
+
     Returns one of: duplicate, supports, supersedes, contradicts, unrelated
     """
-    # Same predicate and value → duplicate
+    # Same predicate and subject_key → check value
     if existing.predicate == candidate.predicate and existing.subject_key == candidate.subject_key:
+        if existing_value is not None:
+            # Compare values to distinguish duplicate from supersede/contradict
+            if str(candidate.value) == str(existing_value):
+                return "duplicate"
+            if existing.memory_type == "preference":
+                return "supersedes"
+            return "contradicts"
         return "duplicate"
 
-    # Same predicate, different value
+    # Same predicate, different subject_key
     if existing.predicate == candidate.predicate:
         if existing.memory_type == "preference":
-            # Preferences can be superseded by newer explicit statements
             return "supersedes"
-        # Contradictory semantic facts
         return "contradicts"
 
     # Related subject key

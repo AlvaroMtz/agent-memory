@@ -6,9 +6,12 @@ Pipeline steps: filter → validate roles → extract → validate evidence → 
 from __future__ import annotations
 
 from agent_memory.constants import EXTRACTABLE_ROLES
+from agent_memory.context import TenantContext
 from agent_memory.domain.candidate import MemoryCandidate
 from agent_memory.domain.evidence import Evidence, EvidenceValidationResult
 from agent_memory.domain.policies import validate_evidence, validate_extraction_role
+from agent_memory.ports.backend import MemoryBackend
+from agent_memory.ports.conflict import ConflictResolver
 from agent_memory.ports.consent import ConsentProvider
 from agent_memory.ports.extractor import MemoryExtractor
 
@@ -61,6 +64,8 @@ async def extract_memories(
     tenant_id: str,
     extractor: MemoryExtractor,
     consent: ConsentProvider | None = None,
+    conflict_resolver: ConflictResolver | None = None,
+    backend: MemoryBackend | None = None,
 ) -> list[MemoryCandidate]:
     """Full extraction pipeline: filter → validate roles → extract → validate evidence → score → return.
 
@@ -71,6 +76,10 @@ async def extract_memories(
         extractor: MemoryExtractor implementation.
         consent: Optional ConsentProvider. When provided, checks active consent
                  before extraction. Returns empty list if consent is not granted.
+        conflict_resolver: Optional ConflictResolver for contradiction detection.
+                           When provided, checks each candidate against existing memories.
+        backend: Optional MemoryBackend for loading existing memories during
+                 contradiction detection. Required if conflict_resolver is provided.
 
     Returns:
         List of validated and scored MemoryCandidate objects.
@@ -105,5 +114,32 @@ async def extract_memories(
         scored = score_candidate(candidate, messages)
         if ev_result.is_valid:
             validated.append(scored)
+
+    # Step 6: Contradiction detection and resolution
+    if conflict_resolver is not None and backend is not None:
+        existing_memories = await backend.list_memories(
+            tenant_id=tenant_id,
+            subject_id=subject_id,
+            limit=500,
+        )
+        resolved: list[MemoryCandidate] = []
+        for candidate in validated:
+            skip_candidate = False
+            for existing in existing_memories:
+                classification = await conflict_resolver.classify(existing, candidate)
+                action = await conflict_resolver.resolve(existing, candidate, classification)
+                if action == "skip":
+                    skip_candidate = True
+                    break
+                elif action == "supersede":
+                    await backend.update_memory_status(
+                        existing.id, "superseded", context=TenantContext(tenant_id=tenant_id),
+                    )
+                elif action == "flag":
+                    # Mark existing as needing review
+                    pass  # pending_review handling deferred to human review
+            if not skip_candidate:
+                resolved.append(candidate)
+        validated = resolved
 
     return validated

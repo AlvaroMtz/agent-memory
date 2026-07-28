@@ -24,7 +24,13 @@ class TestCLI:
         assert "remember" in result.output
         assert "retrieve" in result.output
         assert "serve" in result.output
+        assert "doctor" in result.output
+        assert "migrate" in result.output
         assert "eval" in result.output
+        assert "lab" in result.output
+        assert "consent" in result.output
+        assert "memory" in result.output
+        assert "security-check" in result.output
         assert "check" in result.output
 
     def test_init(self):
@@ -32,6 +38,31 @@ class TestCLI:
         result = CliRunner().invoke(app, ["init"])
         assert result.exit_code == 0
         assert "Environment:" in result.output
+
+    def test_doctor(self):
+        """doctor command runs without error."""
+        result = CliRunner().invoke(app, ["doctor"])
+        assert result.exit_code == 0
+
+    def test_migrate(self):
+        """migrate command runs without error."""
+        result = CliRunner().invoke(app, ["migrate"])
+        assert result.exit_code == 0
+        assert "Alembic" in result.output
+
+    def test_remember(self):
+        """remember command runs without error."""
+        result = CliRunner().invoke(app, ["remember"], input="[]")
+        assert result.exit_code == 0
+
+    def test_retrieve(self):
+        """retrieve command runs without error."""
+        result = CliRunner().invoke(
+            app,
+            ["retrieve"],
+            input='{"query": "test", "tenant_id": "default", "filters": {}}',
+        )
+        assert result.exit_code == 0
 
     def test_check(self):
         """check command runs release gates."""
@@ -51,6 +82,18 @@ class TestCLI:
             assert result.exit_code == 0
             mock_run.assert_called_once()
 
+    def test_lab_seed(self):
+        """lab seed runs without error."""
+        result = CliRunner().invoke(app, ["lab", "seed"])
+        assert result.exit_code == 0
+        assert "Seeding" in result.output
+
+    def test_lab_reset(self):
+        """lab reset runs without error."""
+        result = CliRunner().invoke(app, ["lab", "reset"])
+        assert result.exit_code == 0
+        assert "Resetting" in result.output
+
     def test_eval_run(self):
         """eval run runs without error (datasets dir doesn't exist)."""
         result = CliRunner().invoke(
@@ -66,3 +109,45 @@ class TestCLI:
             ["eval", "report", "--path", "/tmp/agent-memory-nodatasets-nonexistent", "--format", "json"],
         )
         assert result.exit_code == 0
+
+    def test_consent_grant(self):
+        """consent grant runs without error."""
+        result = CliRunner().invoke(app, ["consent", "grant"])
+        assert result.exit_code == 0
+        assert "Consent granted" in result.output
+
+    def test_consent_revoke(self):
+        """consent revoke runs without error."""
+        result = CliRunner().invoke(app, ["consent", "revoke"])
+        assert result.exit_code == 0
+        assert "Consent revoked" in result.output
+
+    def test_consent_list(self):
+        """consent list runs without error."""
+        result = CliRunner().invoke(app, ["consent", "list"])
+        assert result.exit_code == 0
+        assert "Consent records" in result.output
+
+    def test_memory_list(self):
+        """memory list runs without error."""
+        result = CliRunner().invoke(app, ["memory", "list"])
+        assert result.exit_code == 0
+        assert "Memories for" in result.output
+
+    def test_memory_inspect(self):
+        """memory inspect runs without error."""
+        result = CliRunner().invoke(app, ["memory", "inspect", "--id", "test-id"])
+        assert result.exit_code == 0
+        assert "Inspecting memory" in result.output
+
+    def test_memory_forget(self):
+        """memory forget runs without error."""
+        result = CliRunner().invoke(app, ["memory", "forget", "--id", "test-id"])
+        assert result.exit_code == 0
+        assert "Revoking memory" in result.output
+
+    def test_security_check(self):
+        """security-check runs without error."""
+        result = CliRunner().invoke(app, ["security-check"])
+        assert result.exit_code == 0
+        assert "Security Check" in result.output

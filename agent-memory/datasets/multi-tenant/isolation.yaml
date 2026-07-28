@@ -1,0 +1,149 @@
+# Multi-tenant isolation scenarios — verify that tenants are fully isolated
+# and cross-tenant operations are blocked.
+
+scenarios:
+  - name: separate_tenants_separate_memories
+    description: >
+      Two tenants with the same subject_id store independent memories.
+      They should not see each other's data.
+    context:
+      tenant_id: tenant-a
+      subject_id: subject-1
+      purpose: testing
+    consent:
+      purpose: testing
+      allow_write: true
+      allow_read: true
+      allowed_memory_types:
+        - preference
+        - semantic
+      allowed_sensitivity:
+        - public
+        - internal
+    messages:
+      - id: msg-1
+        role: user
+        content: I like Python.
+    expected_candidates:
+      - memory_type: preference
+        subject_key: code
+        predicate: code_language
+        value: Python
+        source_message_id: msg-1
+        explicitly_stated: true
+        sensitivity: public
+    expected_queries:
+      - description: Tenant A should see their own memories
+        memory_type: preference
+        subject_key: code
+        min_results: 0
+
+  - name: cross_tenant_read_blocked
+    description: >
+      Tenant B reading data that belongs to Tenant A should return zero
+      results (no leakage).
+    context:
+      tenant_id: tenant-b
+      subject_id: subject-1
+      purpose: testing
+    consent:
+      purpose: testing
+      allow_write: true
+      allow_read: true
+      allowed_memory_types:
+        - preference
+        - semantic
+      allowed_sensitivity:
+        - public
+        - internal
+    messages: []
+    expected_candidates: []
+    expected_queries:
+      - description: Tenant B should see zero results from Tenant A
+        min_results: 0
+        max_results: 0
+
+  - name: cross_tenant_write_blocked
+    description: >
+      Writing to a memory that belongs to a different tenant should be denied.
+    context:
+      tenant_id: tenant-b
+      subject_id: subject-2
+      purpose: testing
+    consent:
+      purpose: testing
+      allow_write: true
+      allow_read: true
+      allowed_memory_types:
+        - preference
+        - semantic
+      allowed_sensitivity:
+        - public
+        - internal
+    messages:
+      - id: msg-1
+        role: user
+        content: I like Rust.
+    expected_candidates:
+      - memory_type: preference
+        subject_key: code
+        predicate: code_language
+        value: Rust
+        source_message_id: msg-1
+        explicitly_stated: true
+        sensitivity: public
+    expected_queries:
+      - description: Tenant B's own writes are visible
+        memory_type: preference
+        subject_key: code
+        min_results: 0
+
+  - name: cross_tenant_consent_isolation
+    description: >
+      Consent records are tenant-scoped. Tenant B's consent does not affect
+      Tenant A's data access.
+    context:
+      tenant_id: tenant-a
+      subject_id: subject-1
+      purpose: testing
+    consent:
+      purpose: testing
+      allow_write: false
+      allow_read: false
+      allowed_memory_types: []
+      allowed_sensitivity: []
+    messages:
+      - id: msg-1
+        role: user
+        content: Secret data for tenant-a.
+    expected_candidates: []
+    expected_memories: []
+    expected_queries:
+      - description: Tenant A with no consent sees nothing
+        min_results: 0
+        max_results: 0
+    expected_to_fail: true
+
+  - name: empty_tenant_id_denied
+    description: >
+      Operations without a tenant_id must be denied (fail-closed).
+    context:
+      tenant_id: ""
+      subject_id: subject-1
+      purpose: testing
+    consent:
+      purpose: testing
+      allow_write: true
+      allow_read: true
+      allowed_memory_types:
+        - preference
+      allowed_sensitivity:
+        - public
+    messages:
+      - id: msg-1
+        role: user
+        content: Any data.
+    expected_candidates: []
+    expected_memories: []
+    expected_queries: []
+    expected_to_fail: true
