@@ -28,5 +28,5 @@
 ### Infrastructure
 
 - Docker Compose for PostgreSQL + Memory Lab
-- CI matrix (Python 3.11, 3.12, 3.13) with lint, test, migration, build, and example verification
-- Release gates script
+- CI matrix (Python 3.11, 3.12, 3.13) with lint, test, migration, build, example, and dataset evaluation jobs
+- Release gates script: import check, test pass, CLI works, migration runs, build succeeds

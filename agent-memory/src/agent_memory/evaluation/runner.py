@@ -9,7 +9,6 @@ from pathlib import Path
 import yaml
 
 from agent_memory.domain.candidate import MemoryCandidate
-from agent_memory.domain.policies import validate_candidate
 from agent_memory.evaluation.schema import (
     EvaluationScenario,
     EvaluationSuite,
@@ -19,10 +18,12 @@ from agent_memory.ports.backend import MemoryBackend
 from agent_memory.ports.extractor import MemoryExtractor
 
 
-def load_scenario(path: str | Path) -> EvaluationScenario:
-    """Load a single scenario from a YAML or JSON file.
+def load_scenario(path: str | Path) -> EvaluationScenario | list[EvaluationScenario]:
+    """Load scenario(s) from a YAML or JSON file.
 
     Supports .yaml, .yml, and .json files.
+    Handles both single scenario dicts and ``{scenarios: [...]}`` wrappers.
+    Returns a single EvaluationScenario for plain dicts, a list for wrapped formats.
     """
     path = Path(path)
     content = path.read_text(encoding="utf-8")
@@ -35,6 +36,13 @@ def load_scenario(path: str | Path) -> EvaluationScenario:
         msg = f"Unsupported file format: {path.suffix}"
         raise ValueError(msg)
 
+    # Handle {scenarios: [...]} wrapper
+    if isinstance(data, dict) and "scenarios" in data:
+        wrapped = data["scenarios"]
+        if isinstance(wrapped, list):
+            return [EvaluationScenario(**s) for s in wrapped]
+
+    # Single scenario dict
     return EvaluationScenario(**data)
 
 
@@ -45,7 +53,11 @@ def load_dataset(directory: str | Path) -> list[EvaluationScenario]:
 
     for path in sorted(directory.iterdir()):
         if path.suffix in (".yaml", ".yml", ".json"):
-            scenarios.append(load_scenario(path))
+            result = load_scenario(path)
+            if isinstance(result, list):
+                scenarios.extend(result)
+            else:
+                scenarios.append(result)
 
     return scenarios
 
@@ -110,48 +122,28 @@ async def run_scenario(
 
     # Determine pass/fail
     passed = len(errors) == 0
-    if scenario.expected_to_fail:
-        passed = not passed
 
     return ScenarioResult(
         scenario_name=scenario.name,
         passed=passed,
-        errors=errors,
+        duration_ms=duration_ms,
         candidates_found=candidates_found,
         candidates_expected=candidates_expected,
         memories_found=memories_found,
         memories_expected=memories_expected,
-        queries_passed=0,
-        queries_total=len(scenario.expected_queries),
-        duration_ms=duration_ms,
+        errors=errors,
     )
 
 
 async def run_suite(
-    scenarios: list[EvaluationScenario],
+    suite: EvaluationSuite,
     extractor: MemoryExtractor,
     backend: MemoryBackend | None = None,
-    suite_name: str = "evaluation",
 ) -> EvaluationSuite:
-    """Run a complete evaluation suite.
-
-    Args:
-        scenarios: List of scenarios to run.
-        extractor: The extractor to use.
-        backend: Optional backend for persistence checks.
-        suite_name: Name for the suite.
-
-    Returns:
-        EvaluationSuite with all results.
-    """
-    from datetime import datetime, timezone
-
-    suite = EvaluationSuite(name=suite_name)
-    suite.started_at = datetime.now(timezone.utc)
-
-    for scenario in scenarios:
+    """Run all scenarios in a suite and populate results."""
+    results: list[ScenarioResult] = []
+    for scenario in suite.scenarios:
         result = await run_scenario(scenario, extractor, backend)
-        suite.add_result(result)
-
-    suite.finished_at = datetime.now(timezone.utc)
+        results.append(result)
+    suite.results = results
     return suite

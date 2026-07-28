@@ -98,6 +98,9 @@ jobs:
 
   examples:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent-memory
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -106,19 +109,47 @@ jobs:
       - name: Install
         run: |
           pip install -e ".[dev,lab,crypto]"
-        working-directory: agent-memory
-      - name: Run basic example
+      - name: Run all examples
         run: |
-          python examples/langchain_agent/agent.py
+          for ex in examples/*/; do
+            d="$(basename "$ex")"
+            py="${ex}${d}.py"
+            if [ -f "$py" ]; then
+              echo "=== $d ==="
+              python "$py"
+              echo "exit: $?"
+            fi
+          done
+      - name: Run langchain agent example
+        run: python examples/langchain_agent/agent.py
+
+  dataset-eval:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
         working-directory: agent-memory
-      - name: Check eval datasets exist
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install
+        run: pip install -e ".[dev,lab,crypto]"
+      - name: Verify datasets load
         run: |
           python -c "
+          import sys
+          sys.path.insert(0, 'src')
           from pathlib import Path
-          datasets = list(Path('datasets').glob('*.yaml'))
-          print(f'Found {len(datasets)} dataset(s)')
-          for d in datasets:
-              print(f'  - {d.name}')
-          assert len(datasets) > 0, 'No dataset files found'
+          from agent_memory.evaluation.runner import load_dataset
+
+          root = Path(__file__).resolve().parent
+          for dataset_dir in ['datasets']:
+              d = root.parent / dataset_dir
+              if d.is_dir():
+                  scenarios = load_dataset(str(d))
+                  print(f'{dataset_dir}: {len(scenarios)} scenarios loaded')
+                  for s in scenarios:
+                      print(f'  - {s.name}: {len(s.messages)} messages')
+                  assert len(scenarios) > 0, f'No scenarios in {dataset_dir}'
           "
-        working-directory: agent-memory

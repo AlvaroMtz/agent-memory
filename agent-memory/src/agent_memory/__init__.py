@@ -10,3 +10,5 @@ A secure, multi-tenant memory system for AI agents with built-in:
 - Audit
 - Continuous evaluation
 """
+
+__version__ = "0.0.1"
