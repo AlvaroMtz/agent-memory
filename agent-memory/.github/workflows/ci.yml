@@ -1,0 +1,124 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install ruff
+      - run: ruff check agent-memory/
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+      fail-fast: false
+    defaults:
+      run:
+        working-directory: agent-memory
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: |
+          pip install -e ".[dev]"
+      - name: Run tests
+        run: |
+          pytest tests/unit/ tests/contract/ tests/integration/ tests/security/ -q --tb=short
+
+  migration-test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: agent_memory_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install
+        run: |
+          pip install -e ".[dev,lab,crypto]"
+        working-directory: agent-memory
+      - name: Migration test
+        run: |
+          DATABASE_URL="postgresql+asyncpg://postgres:postgres@localhost:5432/agent_memory_test" \
+          pytest tests/migrations/ -q --tb=short
+        working-directory: agent-memory
+      - name: Release check
+        run: |
+          pip install click
+          python scripts/release_check.py
+        working-directory: agent-memory
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Build package
+        run: |
+          pip install build
+          python -m build
+        working-directory: agent-memory
+      - name: Check install from wheel
+        run: |
+          pip install dist/*.whl
+          python -c "import agent_memory; print(f'agent-memory v{agent_memory.__version__}')"
+        working-directory: agent-memory
+
+  examples:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install
+        run: |
+          pip install -e ".[dev,lab,crypto]"
+        working-directory: agent-memory
+      - name: Run basic example
+        run: |
+          python examples/langchain_agent/agent.py
+        working-directory: agent-memory
+      - name: Check eval datasets exist
+        run: |
+          python -c "
+          from pathlib import Path
+          datasets = list(Path('datasets').glob('*.yaml'))
+          print(f'Found {len(datasets)} dataset(s)')
+          for d in datasets:
+              print(f'  - {d.name}')
+          assert len(datasets) > 0, 'No dataset files found'
+          "
+        working-directory: agent-memory

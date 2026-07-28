@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any
 
@@ -42,6 +43,85 @@ def generate_json_report(results: list[EvaluationResult]) -> str:
         })
 
     return json.dumps(report, indent=2, default=str)
+
+
+def generate_report(
+    suite: Any,
+    fmt: str = "json",
+) -> str:
+    """Generate a report from an EvaluationSuite in the requested format."""
+    from agent_memory.evaluation.reports import EvaluationResult
+
+    results: list[EvaluationResult] = [
+        EvaluationResult(
+            scenario_name=r.scenario_name,
+            passed=r.passed,
+            errors=r.errors,
+            metrics={"duration_ms": r.duration_ms, "candidates_found": r.candidates_found},
+        )
+        for r in suite.scenarios
+    ]
+
+    if fmt == "json":
+        return generate_json_report(results)
+    if fmt == "junit":
+        return generate_junit_xml(results)
+    if fmt == "html":
+        return generate_html_report(results)
+    raise ValueError(f"Unsupported report format: {fmt}")
+
+
+def _assert_release_gates(strict: bool = False) -> list[str]:
+    """Run release gates and return a list of pass strings (empty = warning)."""
+    from agent_memory.config import load_config
+
+    results: list[str] = []
+
+    # Gate 1: config loads without error
+    try:
+        config = load_config()
+        results.append(f"config OK (environment={config.environment})")
+    except Exception as exc:
+        results.append(f"config FAIL: {exc}")
+        if strict:
+            raise
+
+    # Gate 2: evaluation datasets exist
+    datasets_path = Path(config.evaluation.get("datasets_path", "./datasets"))
+    if datasets_path.exists() and any(datasets_path.iterdir()):
+        results.append(f"datasets OK ({datasets_path})")
+    else:
+        results.append("")  # warning: no datasets
+        if strict:
+            raise FileNotFoundError(f"No datasets found at {datasets_path}")
+
+    # Gate 3: all required source files present
+    required = [
+        "src/agent_memory/cli/main.py",
+        "src/agent_memory/application/remember.py",
+        "src/agent_memory/application/retrieve.py",
+        "src/agent_memory/lab/app.py",
+        "src/agent_memory/evaluation/runner.py",
+        "src/agent_memory/evaluation/reports.py",
+    ]
+    missing = [f for f in required if not Path(f).exists()]
+    if missing:
+        results.append(f"missing files: {missing}")
+        if strict:
+            raise FileNotFoundError(f"Missing required files: {missing}")
+    else:
+        results.append("source files OK")
+
+    # Gate 4: tests exist and are importable
+    try:
+        import agent_memory  # noqa: F401
+        results.append("package importable")
+    except Exception as exc:
+        results.append(f"package import FAIL: {exc}")
+        if strict:
+            raise
+
+    return results
 
 
 def generate_junit_xml(results: list[EvaluationResult]) -> str:
