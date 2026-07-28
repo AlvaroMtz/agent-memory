@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: agent_memory
+      POSTGRES_USER: agent_memory
+      POSTGRES_PASSWORD: agent_memory_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  lab:
+    build: .
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+    environment:
+      DATABASE_URL: postgresql+asyncpg://agent_memory:agent_memory_dev@postgres:5432/agent_memory
+
+volumes:
+  pgdata:
