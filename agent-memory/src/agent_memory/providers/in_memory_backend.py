@@ -139,6 +139,7 @@ class InMemoryBackend:
         query: str,
         memory_types: list[str] | None = None,
         statuses: list[str] | None = None,
+        query_vector: list[float] | None = None,
         limit: int = 8,
         token_budget: int = 1200,
     ) -> list[RetrievedMemory]:
@@ -171,7 +172,7 @@ class InMemoryBackend:
             vector_score = self._compute_vector_similarity(query, version)
 
             # ── Lexical search (word overlap) ─────────────────────────────
-            lexical_score = self._compute_lexical_similarity(query, version)
+            lexical_score = self._compute_lexical_similarity(query, version, record)
 
             # ── Recency score (decay over time) ───────────────────────────
             age_hours = (now - version.created_at).total_seconds() / 3600.0
@@ -246,7 +247,12 @@ class InMemoryBackend:
             union = query_words | version_words
             return len(intersection) / len(union) if union else 0.0
 
-    def _compute_lexical_similarity(self, query: str, version: MemoryVersion) -> float:
+    def _compute_lexical_similarity(
+        self,
+        query: str,
+        version: MemoryVersion,
+        record: MemoryRecord,
+    ) -> float:
         """Compute lexical (keyword) similarity.
 
         Uses TF-style scoring: count query terms found in the version text,
@@ -256,7 +262,7 @@ class InMemoryBackend:
             return 0.0
 
         query_terms = query.lower().split()
-        version_text = f"{version.predicate} {version.searchable_summary} {version.value}".lower()
+        version_text = f"{record.predicate} {record.subject_key} {version.searchable_summary} {version.value}".lower()
 
         if not query_terms:
             return 0.0

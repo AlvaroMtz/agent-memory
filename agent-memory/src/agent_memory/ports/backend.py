@@ -97,6 +97,7 @@ class MemoryBackend(Protocol):
         query: str,
         memory_types: list[str] | None = None,
         statuses: list[str] | None = None,
+        query_vector: list[float] | None = None,
         limit: int = 8,
         token_budget: int = 1200,
     ) -> list[RetrievedMemory]:

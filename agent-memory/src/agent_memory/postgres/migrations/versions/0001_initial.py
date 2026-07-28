@@ -13,6 +13,9 @@ from typing import Union
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
+from pgvector.sqlalchemy import Vector
+
+from agent_memory.postgres.rls import apply_rls_policies_sql, enable_rqls_sql
 
 # revision identifiers
 revision: str = "0001_initial"
@@ -23,6 +26,8 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Create memories, memory_versions, consent, and audit_log tables."""
+
+    op.execute("CREATE EXTENSION IF NOT EXISTS vector")
 
     # ── memories ──────────────────────────────────────────────────────────────────
     op.create_table(
@@ -59,6 +64,7 @@ def upgrade() -> None:
         sa.Column("version", sa.Integer, nullable=False),
         sa.Column("value", postgresql.JSONB, nullable=False),
         sa.Column("searchable_summary", sa.Text, nullable=False, server_default=""),
+        sa.Column("embedding", Vector(128), nullable=True),
         sa.Column("confidence", sa.Float, nullable=False),
         sa.Column("sensitivity", sa.String(32), nullable=False, server_default="internal"),
         sa.Column("source_type", sa.String(32), nullable=False, server_default="user_explicit"),
@@ -83,6 +89,12 @@ def upgrade() -> None:
         "ix_memory_versions_memory_id",
         "memory_versions",
         ["memory_id"],
+    )
+    op.execute(
+        "CREATE INDEX ix_memory_versions_embedding_ivfflat "
+        "ON memory_versions USING ivfflat (embedding vector_cosine_ops) "
+        "WITH (lists = 100) "
+        "WHERE embedding IS NOT NULL"
     )
 
     # ── consent ───────────────────────────────────────────────────────────────────
@@ -139,9 +151,17 @@ def upgrade() -> None:
     op.create_index("ix_consent_tenant_subject_purpose", "consent", ["tenant_id", "subject_id", "purpose"])
     op.create_index("ix_audit_log_tenant_action", "audit_log", ["tenant_id", "action"])
 
+    op.execute(enable_rqls_sql())
+    op.execute(apply_rls_policies_sql())
+
 
 def downgrade() -> None:
     """Drop all four tables in reverse dependency order."""
+
+    from agent_memory.postgres.rls import disable_rqls_sql, drop_rls_policies_sql
+
+    op.execute(drop_rls_policies_sql())
+    op.execute(disable_rqls_sql())
 
     op.drop_table("memory_versions")
     op.drop_table("memories")

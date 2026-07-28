@@ -112,6 +112,7 @@ class MemoryVersion(BaseModel):
 
     embedding_provider: str = ""
     embedding_model: str = ""
+    embedding: list[float] | None = None
     policy_version: str = ""
     consent_id: UUID | None = None
 

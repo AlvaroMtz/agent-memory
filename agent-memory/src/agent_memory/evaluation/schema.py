@@ -62,6 +62,20 @@ class ExpectedMemory(BaseModel):
     version: int | None = None
 
 
+class ScenarioAction(BaseModel):
+    """Explicit setup action executed before assertions.
+
+    Actions model state transitions that cannot be expressed by messages alone,
+    such as revoking or expiring a persisted memory before retrieval checks.
+    """
+
+    action: str
+    memory_type: str | None = None
+    subject_key: str | None = None
+    predicate: str | None = None
+    status: str | None = None
+
+
 class ExpectedQuery(BaseModel):
     """Expected retrieval query and results."""
 
@@ -95,6 +109,7 @@ class EvaluationScenario(BaseModel):
     context: dict[str, Any] = Field(default_factory=dict)
     consent: ScenarioConsent = Field(default_factory=ScenarioConsent)
     messages: list[ScenarioMessage] = Field(default_factory=list)
+    setup_actions: list[ScenarioAction] = Field(default_factory=list)
 
     # Expected outputs
     expected_candidates: list[ExpectedCandidate] = Field(default_factory=list)
@@ -132,6 +147,26 @@ class EvaluationSuite(BaseModel):
     total_passed: int = 0
     total_failed: int = 0
     total_duration_ms: float = 0.0
+
+    @property
+    def results(self) -> list[ScenarioResult]:
+        """Backward-compatible alias for scenario results."""
+        return self.scenarios
+
+    @results.setter
+    def results(self, value: list[ScenarioResult]) -> None:
+        self.scenarios = value
+        self.total_passed = sum(1 for result in value if result.passed)
+        self.total_failed = sum(1 for result in value if not result.passed)
+        self.total_duration_ms = sum(result.duration_ms for result in value)
+
+    @property
+    def total_count(self) -> int:
+        return len(self.scenarios)
+
+    @property
+    def pass_count(self) -> int:
+        return self.total_passed
 
     def add_result(self, result: ScenarioResult) -> None:
         self.scenarios.append(result)

@@ -16,6 +16,7 @@ from agent_memory.application.retrieve import (
 )
 from agent_memory.constants import MemoryStatus
 from agent_memory.context import TenantContext
+from agent_memory.domain.consent import ConsentRecord
 from agent_memory.domain.memory import MemoryRecord, MemoryVersion
 from agent_memory.domain.retrieval import RetrievedMemory, RetrievalResult
 from agent_memory.ports.consent import ConsentProvider
@@ -58,6 +59,28 @@ async def _save_test_memory(
     context = TenantContext(tenant_id=tenant_id)
     await backend.save_memory(record, version, context=context)
     return record
+
+
+async def _grant_read_consent(
+    backend: InMemoryBackend,
+    *,
+    tenant_id: str = "t1",
+    subject_id: str = "sub-1",
+    purpose: str = "test",
+) -> None:
+    await backend.save_consent(
+        ConsentRecord(
+            tenant_id=tenant_id,
+            subject_id=subject_id,
+            actor_id="tester",
+            purpose=purpose,
+            allow_write=True,
+            allow_read=True,
+            allowed_memory_types={"preference", "semantic"},
+            allowed_sensitivity={"public", "internal"},
+        ),
+        context=TenantContext(tenant_id=tenant_id, actor_id="tester"),
+    )
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
@@ -159,7 +182,14 @@ class TestRetrieve:
         """Backend with memories → non-empty result."""
         await backend.initialize()
         await _save_test_memory(backend)
-        result = await retrieve(tenant_id="t1", subject_id="sub-1", backend=backend)
+        await _grant_read_consent(backend)
+        result = await retrieve(
+            tenant_id="t1",
+            subject_id="sub-1",
+            backend=backend,
+            consent=backend,
+            filters={"purpose": "test"},
+        )
         assert not result.empty
         assert result.total_count >= 1
 

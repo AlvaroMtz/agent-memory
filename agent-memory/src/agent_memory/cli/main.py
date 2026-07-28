@@ -233,7 +233,8 @@ def run(path: str) -> None:
             scenarios = load_dataset(dataset_path)
         else:
             from agent_memory.evaluation.runner import load_scenario
-            scenarios = [load_scenario(dataset_path)]
+            loaded = load_scenario(dataset_path)
+            scenarios = loaded if isinstance(loaded, list) else [loaded]
     else:
         click.echo(f"No datasets found at {path}; nothing to run")
         return
@@ -269,7 +270,8 @@ def report(path: str, fmt: str) -> None:
             scenarios = load_dataset(dataset_path)
         else:
             from agent_memory.evaluation.runner import load_scenario
-            scenarios = [load_scenario(dataset_path)]
+            loaded = load_scenario(dataset_path)
+            scenarios = loaded if isinstance(loaded, list) else [loaded]
     else:
         click.echo(f"No datasets found at {path}; generating empty report")
         from agent_memory.evaluation.schema import EvaluationSuite
@@ -282,6 +284,51 @@ def report(path: str, fmt: str) -> None:
     suite = asyncio.run(run_suite(scenarios, extractor, suite_name="report-eval"))
     output = generate_report(suite, fmt=fmt)
     click.echo(output)
+
+
+# ── scenario ─────────────────────────────────────────────────────────────────
+
+
+@app.group()
+def scenario() -> None:
+    """Scenario runner commands."""
+
+
+@scenario.command(name="run")
+@click.argument("path", type=click.Path(exists=True))
+@click.option("--seed", default=42, help="Deterministic seed for providers")
+@click.option("--format", "fmt", default="text", type=click.Choice(["text", "json", "junit", "html"]))
+def scenario_run(path: str, seed: int, fmt: str) -> None:
+    """Run a scenario file or directory."""
+    from agent_memory.evaluation.reports import generate_report
+    from agent_memory.evaluation.runner import load_dataset, load_scenario, run_suite
+    from agent_memory.providers.rule_based_extractor import RuleBasedExtractor
+
+    dataset_path = Path(path)
+    if dataset_path.is_dir():
+        scenarios = load_dataset(dataset_path)
+    else:
+        loaded = load_scenario(dataset_path)
+        scenarios = loaded if isinstance(loaded, list) else [loaded]
+
+    suite = asyncio.run(run_suite(scenarios, RuleBasedExtractor(), suite_name=dataset_path.name))
+
+    if fmt != "text":
+        click.echo(generate_report(suite, fmt=fmt))
+        if suite.total_failed:
+            sys.exit(1)
+        return
+
+    click.echo(f"Dataset: {dataset_path}")
+    for result in suite.results:
+        mark = "✓" if result.passed else "✗"
+        click.echo(f"{mark} {result.scenario_name}")
+        for error in result.errors:
+            click.echo(f"  Reason: {error}")
+    click.echo("")
+    click.echo("Result: PASS" if suite.total_failed == 0 else "Result: FAIL")
+    if suite.total_failed:
+        sys.exit(1)
 
 
 # ── consent ──────────────────────────────────────────────────────────────────
@@ -364,12 +411,36 @@ def forget(memory_id: str) -> None:
 @click.option("--name", "check_name", default=None, help="Specific check to run (optional)")
 def security_check(check_name: str | None) -> None:
     """Run security scan."""
-    click.echo("Security Check Results:")
-    click.echo("  ✓ Multi-tenant isolation: PASS")
-    click.echo("  ✓ Consent enforcement: PASS")
-    click.echo("  ✓ Encryption provider: PASS")
-    click.echo("  ✓ No hardcoded secrets detected: PASS")
-    click.echo("  ✓ Prompt injection prevention: PASS")
+    from agent_memory.evaluation.reports import _assert_release_gates
+
+    try:
+        checks = _assert_release_gates(strict=True)
+    except Exception as exc:
+        click.echo(f"Security check FAILED: {exc}", err=True)
+        sys.exit(1)
+    click.echo("Security Check completed:")
+    for item in checks:
+        click.echo(f"  ✓ {item}")
+
+
+@app.group()
+def release() -> None:
+    """Release gate commands."""
+
+
+@release.command(name="check")
+@click.option("--strict/--no-strict", default=True, help="Fail on any release-gate violation")
+def release_check(strict: bool) -> None:
+    """Run release gates."""
+    from agent_memory.evaluation.reports import _assert_release_gates
+
+    try:
+        results = _assert_release_gates(strict=strict)
+    except Exception as exc:
+        click.echo(f"FAIL: {exc}", err=True)
+        sys.exit(1)
+    for result in results:
+        click.echo(f"  [PASS] {result}")
 
 
 # ── check ────────────────────────────────────────────────────────────────────

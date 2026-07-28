@@ -1,4 +1,4 @@
-"""Basic usage example — extract memory candidates from text.
+"""Basic usage example — persist memory candidates from text.
 
 The RuleBasedExtractor identifies structured preferences and semantic
 facts using Spanish-language patterns.
@@ -17,21 +17,33 @@ from agent_memory.providers.rule_based_extractor import RuleBasedExtractor
 async def main():
     backend = InMemoryBackend()
     extractor = RuleBasedExtractor()
-    client = MemoryClient(backend, extractor=extractor)
+    client = MemoryClient(backend, extractor, consent=backend)
 
     context = MemoryContext(
-        tenant_id="t1",
+        tenant_id="tenant-a",
         subject_id="user-1",
         actor_id="assistant-1",
-        purpose="general",
+        purpose="example",
     )
 
-    # The RuleBasedExtractor uses Spanish regex patterns
-    candidates = await client.remember("Prefiero respuestas cortas.", context)
-    print(f"Extracted {len(candidates)} memory candidate(s):")
-    for c in candidates:
-        print(f"  type={c.memory_type}, pred={c.predicate}, val={c.value}")
-        print(f"      confidence={c.confidence}, source={c.source_message_id}")
+    async with client:
+        await client.grant_consent(
+            context,
+            memory_types=["preference"],
+            sensitivity="public",
+            allow_read=True,
+            allow_write=True,
+        )
+        messages = [
+            {"id": "msg-1", "role": "user", "content": "Prefiero respuestas cortas."},
+        ]
+        result = await client.remember(context=context, messages=messages)
+        print(f"Persisted {result.count} memory/memories")
+        print(f"  Encrypted: {result.encrypted}")
+        if result.audit_id:
+            print(f"  Audit ID: {result.audit_id}")
+        for m in result.memories:
+            print(f"  memory_id={m.id}, type={m.memory_type}, pred={m.predicate}")
 
     print("Done")
 

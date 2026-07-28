@@ -34,7 +34,7 @@ class MemoryCandidate(BaseModel):
 
     explicitly_stated: bool = True
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
-    sensitivity: str = "internal"
+    sensitivity: str = "public"
 
     def is_valid(self) -> bool:
         """Basic validity check — detailed checks are done by policies."""

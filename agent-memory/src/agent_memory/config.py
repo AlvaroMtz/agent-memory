@@ -8,8 +8,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+from pydantic_settings import (
+    BaseSettings,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+    YamlConfigSettingsSource,
+)
 
 from agent_memory.constants import (
     DEFAULT_EMBEDDING_DIMENSIONS,
@@ -23,8 +28,10 @@ from agent_memory.exceptions import ConfigurationError
 
 
 class DatabaseConfig(BaseModel):
-    uri: str = "postgresql+asyncpg://localhost:5432/agent_memory"
-    schema: str = "agent_memory"
+    model_config = ConfigDict(populate_by_name=True)
+
+    uri: str = "postgresql+psycopg://localhost:5432/agent_memory"
+    db_schema: str = Field(default="agent_memory", alias="schema")
     pool_size: int = 5
     max_overflow: int = 10
 
@@ -85,6 +92,25 @@ class MemoryConfig(BaseSettings):
         "fail_on_gate_violation": True,
     })
 
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        """Load YAML as a real settings source below init/env overrides."""
+
+        return (
+            init_settings,
+            env_settings,
+            YamlConfigSettingsSource(settings_cls),
+            dotenv_settings,
+            file_secret_settings,
+        )
+
     def validate_production(self) -> None:
         """Validate configuration for production environment.
 
@@ -115,8 +141,14 @@ class MemoryConfig(BaseSettings):
 
 def load_config(path: str | Path | None = None) -> MemoryConfig:
     """Load memory configuration from a YAML file or environment variables."""
-    config = MemoryConfig()
     if path:
-        config = MemoryConfig(_yaml_file=str(path))
+        class PathMemoryConfig(MemoryConfig):
+            model_config = SettingsConfigDict(
+                **{**MemoryConfig.model_config, "yaml_file": str(path)}
+            )
+
+        config = PathMemoryConfig()
+    else:
+        config = MemoryConfig()
     config.validate_production()
     return config

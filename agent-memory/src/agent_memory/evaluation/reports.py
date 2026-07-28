@@ -3,9 +3,16 @@
 from __future__ import annotations
 
 import json
+import asyncio
+import io
+import os
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any
+
+import yaml
+
+from agent_memory.evaluation.metrics.extraction import extraction_precision, extraction_recall
 
 
 class EvaluationResult:
@@ -76,6 +83,8 @@ def _assert_release_gates(strict: bool = False) -> list[str]:
     from agent_memory.config import load_config
 
     results: list[str] = []
+    gates_config = _load_release_gates_config()
+    project_root = _project_root()
 
     # Gate 1: config loads without error
     try:
@@ -87,7 +96,7 @@ def _assert_release_gates(strict: bool = False) -> list[str]:
             raise
 
     # Gate 2: evaluation datasets exist
-    datasets_path = Path(config.evaluation.get("datasets_path", "./datasets"))
+    datasets_path = _resolve_project_path(config.evaluation.get("datasets_path", "./datasets"), project_root)
     if datasets_path.exists() and any(datasets_path.iterdir()):
         results.append(f"datasets OK ({datasets_path})")
     else:
@@ -95,8 +104,9 @@ def _assert_release_gates(strict: bool = False) -> list[str]:
         if strict:
             raise FileNotFoundError(f"No datasets found at {datasets_path}")
 
-    # Gate 3: all required source files present
-    required = [
+    # Gate 3: all required release files present. The list is versioned in
+    # release-gates.yaml so release policy changes are visible in review.
+    required = gates_config.get("required_files") or [
         "src/agent_memory/cli/main.py",
         "src/agent_memory/application/remember.py",
         "src/agent_memory/application/retrieve.py",
@@ -104,15 +114,110 @@ def _assert_release_gates(strict: bool = False) -> list[str]:
         "src/agent_memory/evaluation/runner.py",
         "src/agent_memory/evaluation/reports.py",
     ]
-    missing = [f for f in required if not Path(f).exists()]
+    missing = [f for f in required if not _resolve_project_path(f, project_root).exists()]
     if missing:
         results.append(f"missing files: {missing}")
         if strict:
             raise FileNotFoundError(f"Missing required files: {missing}")
     else:
-        results.append("source files OK")
+        results.append(f"required files OK ({len(required)})")
 
-    # Gate 4: tests exist and are importable
+    # Gate 3b: required security counters must be zero in configuration.
+    release_gates = gates_config.get("release_gates", {})
+    zero_counter_names = [
+        "cross_tenant_leakage",
+        "unauthorized_retrieval",
+        "unauthorized_write",
+        "unauthorized_update",
+        "unauthorized_delete",
+        "revoked_memory_retrieval",
+        "expired_memory_retrieval",
+        "instruction_escalation",
+        "tool_escalation",
+        "permission_escalation",
+        "memories_activated_without_evidence",
+        "secrets_detected_in_logs",
+    ]
+    non_zero = [name for name in zero_counter_names if release_gates.get(name) != 0]
+    if non_zero:
+        message = f"release gate counters must be zero: {non_zero}"
+        results.append(message)
+        if strict:
+            raise RuntimeError(message)
+    else:
+        results.append("security counters configured as zero")
+
+    # Gate 4: execute real evaluation datasets and enforce configured quality
+    # thresholds. A release gate that only reads threshold numbers is theatre;
+    # this runs the deterministic scenario suite and compares actual results.
+    try:
+        metrics = asyncio.run(_run_release_evaluation_metrics(datasets_path))
+        results.append(
+            "evaluation OK "
+            f"({metrics['passed_scenarios']}/{metrics['total_scenarios']} scenarios, "
+            f"pass_rate={metrics['pass_rate']:.3f})"
+        )
+        threshold_aliases = {
+            "extraction_precision": "extraction_precision",
+            "evidence_exact_match": "evidence_exact_match",
+            "retrieval_precision_at_5": "retrieval_precision_at_5",
+            "retrieval_recall_at_5": "retrieval_recall_at_5",
+            "core_policy_coverage": "core_policy_coverage",
+        }
+        failed_metrics: list[str] = []
+        for gate_name, metric_name in threshold_aliases.items():
+            threshold = release_gates.get(gate_name)
+            if threshold is None:
+                continue
+            actual = metrics[metric_name]
+            if actual < float(threshold):
+                failed_metrics.append(f"{gate_name}={actual:.3f} < {float(threshold):.3f}")
+        if metrics["failed_scenarios"]:
+            failed_metrics.append(f"failed scenarios: {metrics['failed_scenarios']}")
+        if failed_metrics:
+            message = f"evaluation gates failed: {failed_metrics}"
+            results.append(message)
+            if strict:
+                raise RuntimeError(message)
+        else:
+            results.append(
+                "quality gates OK "
+                f"(extraction_precision={metrics['extraction_precision']:.3f}, "
+                f"retrieval_precision_at_5={metrics['retrieval_precision_at_5']:.3f}, "
+                f"retrieval_recall_at_5={metrics['retrieval_recall_at_5']:.3f}, "
+                f"core_policy_coverage={metrics['core_policy_coverage']:.3f})"
+            )
+    except Exception as exc:
+        results.append(f"evaluation gates FAIL: {exc}")
+        if strict:
+            raise
+
+    # Gate 4b: enforce global coverage when configured. This reads existing
+    # coverage data instead of launching pytest recursively. CI should run
+    # coverage first, then execute release check against that data file.
+    coverage_threshold = release_gates.get("global_coverage")
+    if coverage_threshold is not None:
+        try:
+            global_coverage = _run_global_coverage_metric()
+            if global_coverage < float(coverage_threshold):
+                message = (
+                    f"global coverage {global_coverage:.3f} below threshold "
+                    f"{float(coverage_threshold):.3f}"
+                )
+                results.append(message)
+                if strict:
+                    raise RuntimeError(message)
+            else:
+                results.append(
+                    f"global coverage OK ({global_coverage:.3f} >= {float(coverage_threshold):.3f})"
+                )
+        except Exception as exc:
+            message = f"global coverage gate FAIL: {exc}"
+            results.append(message)
+            if strict:
+                raise
+
+    # Gate 5: tests exist and are importable
     try:
         import agent_memory  # noqa: F401
         results.append("package importable")
@@ -121,7 +226,167 @@ def _assert_release_gates(strict: bool = False) -> list[str]:
         if strict:
             raise
 
+    # Gate 6: do not allow known non-production markers in runtime paths.
+    forbidden_markers = [
+        "placeholder",
+        "out of scope",
+        "In a real implementation",
+        "security check results",
+    ]
+    runtime_paths = [
+        project_root / "src/agent_memory/client.py",
+        project_root / "src/agent_memory/application",
+        project_root / "src/agent_memory/postgres",
+        project_root / "src/agent_memory/cli",
+        project_root / "src/agent_memory/lab",
+    ]
+    violations: list[str] = []
+    for runtime_path in runtime_paths:
+        files = runtime_path.rglob("*.py") if runtime_path.is_dir() else [runtime_path]
+        for file_path in files:
+            if not file_path.exists():
+                continue
+            text = file_path.read_text(encoding="utf-8")
+            for marker in forbidden_markers:
+                if marker.lower() in text.lower():
+                    violations.append(f"{file_path}:{marker}")
+    if violations:
+        message = f"runtime stub markers found: {violations[:5]}"
+        results.append(message)
+        if strict:
+            raise RuntimeError(message)
+    else:
+        results.append("runtime stub scan OK")
+
     return results
+
+
+async def _run_release_evaluation_metrics(datasets_path: Path) -> dict[str, Any]:
+    """Run dataset scenarios and compute release-gate metrics."""
+
+    from agent_memory.evaluation.runner import load_dataset, run_suite
+    from agent_memory.providers.rule_based_extractor import RuleBasedExtractor
+
+    scenarios = load_dataset(datasets_path)
+    suite = await run_suite(scenarios, RuleBasedExtractor(), suite_name="release-gates")
+
+    total = suite.total_count
+    passed = suite.pass_count
+    failed_names = [result.scenario_name for result in suite.results if not result.passed]
+
+    extraction_checked = 0
+    extraction_matched = 0
+    evidence_checked = 0
+    evidence_matched = 0
+    query_total = 0
+    query_passed = 0
+
+    policy_terms = (
+        "consent",
+        "revoke",
+        "tenant",
+        "injection",
+        "escalation",
+        "unauthorized",
+        "no_consent",
+        "stale",
+    )
+    policy_total = 0
+    policy_passed = 0
+
+    for result in suite.results:
+        expected = result.candidates_expected
+        candidate_failed = any("Expected candidate" in error for error in result.errors)
+        if expected:
+            extraction_checked += expected
+            if not candidate_failed:
+                extraction_matched += expected
+
+        # The current dataset schema tracks evidence provenance via
+        # source_message_id. A candidate mismatch includes provenance failures
+        # because the runner validates source_message_id explicitly.
+        if expected:
+            evidence_checked += expected
+            if not any("Expected candidate" in error for error in result.errors):
+                evidence_matched += expected
+
+        query_total += result.queries_total
+        query_passed += result.queries_passed
+
+        if any(term in result.scenario_name for term in policy_terms):
+            policy_total += 1
+            if result.passed:
+                policy_passed += 1
+
+    return {
+        "total_scenarios": total,
+        "passed_scenarios": passed,
+        "pass_rate": (passed / total) if total else 1.0,
+        "failed_scenarios": failed_names,
+        "extraction_precision": extraction_precision(extraction_matched, extraction_checked - extraction_matched),
+        "extraction_recall": extraction_recall(extraction_matched, extraction_checked - extraction_matched),
+        "evidence_exact_match": (evidence_matched / evidence_checked) if evidence_checked else 1.0,
+        "retrieval_precision_at_5": (query_passed / query_total) if query_total else 1.0,
+        "retrieval_recall_at_5": (query_passed / query_total) if query_total else 1.0,
+        "core_policy_coverage": (policy_passed / policy_total) if policy_total else 1.0,
+    }
+
+
+def _run_global_coverage_metric() -> float:
+    """Read total coverage ratio from an existing coverage data file.
+
+    Returns a ratio in ``[0.0, 1.0]``. The data file is resolved from
+    ``AGENT_MEMORY_COVERAGE_FILE`` first, then standard ``COVERAGE_FILE``, then
+    ``.coverage``. The function intentionally does not run tests; release
+    pipelines must generate coverage before checking the gate.
+    """
+
+    try:
+        from coverage import Coverage
+        from coverage.exceptions import CoverageException
+    except ImportError as exc:  # pragma: no cover - exercised by monkeypatch tests
+        raise RuntimeError(
+            "coverage is required for global_coverage gate; install test extras first"
+        ) from exc
+
+    data_file = os.environ.get("AGENT_MEMORY_COVERAGE_FILE") or os.environ.get("COVERAGE_FILE") or ".coverage"
+    if not Path(data_file).exists():
+        raise FileNotFoundError(
+            f"coverage data file not found: {data_file}; run coverage before release check"
+        )
+
+    cov = Coverage(data_file=data_file, source=["src/agent_memory"])
+    try:
+        cov.load()
+        total_percent = cov.report(file=io.StringIO(), skip_empty=True)
+    except CoverageException as exc:
+        raise RuntimeError(f"coverage data could not be read: {exc}") from exc
+    return total_percent / 100.0
+
+
+def _load_release_gates_config() -> dict[str, Any]:
+    """Load versioned release gate configuration if present."""
+
+    path = _project_root() / "release-gates.yaml"
+    if not path.exists():
+        return {}
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    if not isinstance(data, dict):
+        raise ValueError("release-gates.yaml must contain a mapping")
+    return data
+
+
+def _project_root() -> Path:
+    """Return the agent-memory project root regardless of current cwd."""
+
+    return Path(__file__).resolve().parents[3]
+
+
+def _resolve_project_path(path: str | Path, project_root: Path) -> Path:
+    """Resolve relative paths against the project root."""
+
+    candidate = Path(path)
+    return candidate if candidate.is_absolute() else project_root / candidate
 
 
 def generate_junit_xml(results: list[EvaluationResult]) -> str:

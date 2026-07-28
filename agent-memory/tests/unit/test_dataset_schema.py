@@ -11,6 +11,7 @@ from agent_memory.evaluation.schema import (
     ExpectedCandidate,
     ExpectedMemory,
     ExpectedQuery,
+    ScenarioAction,
     ScenarioConsent,
     ScenarioMessage,
     ScenarioResult,
@@ -119,6 +120,23 @@ class TestEvaluationScenario:
         restored = EvaluationScenario(**json.loads(json_str))
         assert restored.name == "json-test"
         assert restored.expected_candidates[0].value == "Python"
+
+    def test_setup_actions(self):
+        scenario = EvaluationScenario(
+            name="setup-action-test",
+            setup_actions=[
+                ScenarioAction(
+                    action="set_memory_status",
+                    memory_type="preference",
+                    subject_key="programming",
+                    predicate="favorite_language",
+                    status="revoked",
+                )
+            ],
+        )
+
+        assert scenario.setup_actions[0].action == "set_memory_status"
+        assert scenario.setup_actions[0].status == "revoked"
 
 
 class TestScenarioResult:

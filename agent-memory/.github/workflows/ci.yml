@@ -46,7 +46,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16-alpine
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_DB: agent_memory_test
           POSTGRES_USER: postgres
@@ -69,13 +69,13 @@ jobs:
         working-directory: agent-memory
       - name: Migration test
         run: |
-          DATABASE_URL="postgresql+asyncpg://postgres:postgres@localhost:5432/agent_memory_test" \
+          AGENT_MEMORY_DATABASE__URI="postgresql+psycopg://postgres:postgres@localhost:5432/agent_memory_test" \
           pytest tests/migrations/ -q --tb=short
         working-directory: agent-memory
       - name: Release check
         run: |
           pip install click
-          python scripts/release_check.py
+          make release-check
         working-directory: agent-memory
 
   build:

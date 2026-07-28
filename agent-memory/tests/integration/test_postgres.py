@@ -21,6 +21,7 @@ from agent_memory.domain.audit import AuditEvent, AuditQuery
 from agent_memory.domain.consent import ConsentRecord
 from agent_memory.domain.memory import MemoryRecord, MemoryVersion
 from agent_memory.exceptions import (
+    ConfigurationError,
     ConsentNotFoundError,
     MemoryNotFoundError,
 )
@@ -445,6 +446,15 @@ class TestPostgresBackend:
         config = MemoryConfig()
         config.database.uri = "sqlite+aiosqlite://"
         return PostgresBackend(config=config)
+
+    def test_rejects_non_schema_embedding_dimensions(self):
+        """PostgreSQL backend fails fast when config dimensions do not match Vector(128)."""
+
+        config = MemoryConfig()
+        config.embeddings.dimensions = 256
+
+        with pytest.raises(ConfigurationError, match="requires embeddings.dimensions=128"):
+            PostgresBackend(config=config)
 
     async def _run_with_mock_session(self, backend, callback):
         """Run a callback with a mock session patched into get_session."""

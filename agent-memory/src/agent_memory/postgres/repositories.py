@@ -95,6 +95,7 @@ class MemoryRepository:
             version=orm.version,
             value=orm.value,
             searchable_summary=orm.searchable_summary,
+            embedding=list(orm.embedding) if orm.embedding is not None else None,
             confidence=orm.confidence,
             sensitivity=orm.sensitivity,  # type: ignore[arg-type]
             source_type=orm.source_type,  # type: ignore[arg-type]
@@ -112,6 +113,7 @@ class MemoryRepository:
             version=version.version,
             value=version.value,
             searchable_summary=version.searchable_summary,
+            embedding=version.embedding,
             confidence=version.confidence,
             sensitivity=version.sensitivity,
             source_type=version.source_type,
@@ -227,6 +229,70 @@ class MemoryRepository:
         await self.session.execute(stmt)
         await self.session.flush()
         return version
+
+    async def get_current_version(
+        self,
+        memory_id: UUID,
+        *,
+        version: int,
+    ) -> MemoryVersion | None:
+        """Return a memory version by memory id and version number."""
+        stmt = select(MemoryVersionModel).where(
+            MemoryVersionModel.memory_id == memory_id,
+            MemoryVersionModel.version == version,
+        )
+        result = await self.session.execute(stmt)
+        orm = result.scalar_one_or_none()
+        if orm is None:
+            return None
+        return self._orm_to_version(orm)
+
+    async def search_current_versions(
+        self,
+        *,
+        tenant_id: str,
+        subject_id: str,
+        purpose: str | None = None,
+        memory_types: list[str] | None = None,
+        statuses: list[str] | None = None,
+        query_vector: list[float] | None = None,
+        limit: int = 8,
+    ) -> list[tuple[MemoryRecord, MemoryVersion, float]]:
+        """Search current memory versions with optional pgvector ranking."""
+
+        conditions = [
+            MemoryModel.tenant_id == tenant_id,
+            MemoryModel.subject_id == subject_id,
+            MemoryVersionModel.memory_id == MemoryModel.id,
+            MemoryVersionModel.version == MemoryModel.current_version,
+        ]
+        if purpose is not None:
+            conditions.append(MemoryModel.purpose == purpose)
+        if memory_types:
+            conditions.append(MemoryModel.memory_type.in_(memory_types))
+        if statuses:
+            conditions.append(MemoryModel.status.in_(statuses))
+
+        distance_expr = None
+        if query_vector is not None:
+            conditions.append(MemoryVersionModel.embedding.is_not(None))
+            distance_expr = MemoryVersionModel.embedding.cosine_distance(query_vector).label("distance")
+
+        stmt = select(MemoryModel, MemoryVersionModel, distance_expr).where(*conditions)
+        if distance_expr is not None:
+            stmt = stmt.order_by(distance_expr.asc())
+        else:
+            stmt = stmt.order_by(MemoryModel.updated_at.desc())
+        stmt = stmt.limit(limit)
+
+        rows = (await self.session.execute(stmt)).all()
+        results: list[tuple[MemoryRecord, MemoryVersion, float]] = []
+        for memory_orm, version_orm, distance in rows:
+            vector_score = 0.0
+            if distance is not None:
+                vector_score = max(0.0, min(1.0, 1.0 - float(distance)))
+            results.append((self._orm_to_memory(memory_orm), self._orm_to_version(version_orm), vector_score))
+        return results
 
     async def update_status(
         self,

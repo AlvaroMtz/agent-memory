@@ -12,7 +12,7 @@ import contextlib
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from sqlalchemy import event
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -117,12 +117,12 @@ async def get_session(
         # Set RLS context parameters before any operation
         if tenant_id:
             await session.execute(
-                f"SELECT set_config(:param, :val, true)",
+                text("SELECT set_config(:param, :val, true)"),
                 {"param": TENANT_CONTEXT_PARAM, "val": tenant_id},
             )
         if actor_id:
             await session.execute(
-                f"SELECT set_config(:param, :val, true)",
+                text("SELECT set_config(:param, :val, true)"),
                 {"param": "agent_memory.actor_id", "val": actor_id},
             )
 

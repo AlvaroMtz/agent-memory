@@ -1,7 +1,7 @@
 """Seed/reset scripts for the Memory Lab.
 
 Creates sample conversation messages, consent records, and audit events
-using InMemoryBackend (default) or PostgresBackend (if DATABASE_URL is set).
+using InMemoryBackend (default) or PostgresBackend (if AGENT_MEMORY_DATABASE__URI is set).
 """
 
 from __future__ import annotations
@@ -130,10 +130,10 @@ def main() -> None:
     parser.add_argument("--clear", action="store_true", help="Clear existing data before seeding")
     args = parser.parse_args()
 
-    database_url = os.environ.get("DATABASE_URL")
+    database_url = os.environ.get("AGENT_MEMORY_DATABASE__URI")
 
     if database_url:
-        print(f"Using PostgresBackend (DATABASE_URL set)")
+        print("Using PostgresBackend (AGENT_MEMORY_DATABASE__URI set)")
         print("Note: Postgres seeding requires running migrations first.")
         print("For now, seeding InMemoryBackend only.")
 

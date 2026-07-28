@@ -11,7 +11,7 @@ from agent_memory.context import MemoryContext
 
 
 class TestSyncMemoryClient:
-    """Tests for the synchronous SyncMemoryClient."""
+    """Tests for the synchronous SyncMemoryClient facade."""
 
     @pytest.fixture
     def mock_backend(self) -> MagicMock:
@@ -19,6 +19,11 @@ class TestSyncMemoryClient:
         backend.initialize = AsyncMock()
         backend.close = AsyncMock()
         backend.list_memories = AsyncMock(return_value=[])
+        from agent_memory.domain.memory import MemoryRecord
+        backend.save_memory = AsyncMock(
+            return_value=MemoryRecord(tenant_id="t", subject_id="s", purpose="p", memory_type="preference", subject_key="k", predicate="p")
+        )
+        backend.audit = AsyncMock()
         return backend
 
     @pytest.fixture
@@ -31,7 +36,9 @@ class TestSyncMemoryClient:
 
     @pytest.fixture
     def mock_consent(self) -> MagicMock:
-        return MagicMock()
+        consent = MagicMock()
+        consent.get_active_consent = AsyncMock(return_value=None)
+        return consent
 
     @pytest.fixture
     def context(self) -> MemoryContext:
@@ -52,22 +59,65 @@ class TestSyncMemoryClient:
     ) -> SyncMemoryClient:
         return SyncMemoryClient(mock_backend, mock_extractor, mock_embedder, mock_consent)
 
-    def test_enter_exits(self, client: SyncMemoryClient):
-        """Context manager enters and exits."""
-        with client:
-            pass  # Should not raise
+    def test_init_with_backend(self, mock_backend: MagicMock):
+        """Client initializes backend on __enter__."""
+        with SyncMemoryClient(mock_backend) as client:
+            mock_backend.initialize.assert_called_once()
 
-    def test_remember(self, client: SyncMemoryClient, context: MemoryContext):
-        """remember delegates to async client."""
-        with patch(
-            "agent_memory.sync_client.MemoryClient.remember", new_callable=AsyncMock
-        ) as mock_remember:
-            mock_remember.return_value = []
-            result = client.remember("hello", context)
-            assert result == []
+    def test_remember_no_consent_returns_empty(self, client: SyncMemoryClient, context: MemoryContext):
+        """remember returns empty result when no consent is granted."""
+        client._client._consent.get_active_consent = AsyncMock(return_value=None)
+        result = client.remember(
+            context=context,
+            messages=[{"id": "m1", "role": "user", "content": "hello"}],
+        )
+        assert result.count == 0
+        assert result.empty
+
+    def test_remember_with_consent(self, client: SyncMemoryClient, context: MemoryContext):
+        """remember persists candidates when consent is active."""
+        from agent_memory.domain.consent import ConsentRecord
+        from agent_memory.domain.candidate import MemoryCandidate
+        from uuid import uuid4
+
+        mock_record = ConsentRecord(
+            id=uuid4(),
+            tenant_id="t1",
+            subject_id="s1",
+            actor_id="a1",
+            purpose="test",
+            allow_read=True,
+            allow_write=True,
+            allowed_memory_types={"preference"},
+            allowed_sensitivity={"public"},
+        )
+        client._client._consent.get_active_consent = AsyncMock(return_value=mock_record)
+        client._client._extractor = MagicMock()
+        client._client._extractor.extract = AsyncMock(
+            return_value=[
+                MemoryCandidate(
+                    memory_type="preference",
+                    subject_key="code",
+                    predicate="editor",
+                    value="VS Code",
+                    source_message_id="m1",
+                    evidence_text="VS Code",
+                    source_role="user",
+                    confidence=0.9,
+                )
+            ]
+        )
+
+        result = client.remember(
+            context=context,
+            messages=[{"id": "m1", "role": "user", "content": "VS Code"}],
+        )
+        assert result.count == 1
+        assert result.audit_id is not None
+        client._client._backend.save_memory.assert_called_once()
 
     def test_retrieve(self, client: SyncMemoryClient, context: MemoryContext):
-        """retrieve delegates to async client."""
+        """retrieve calls the retrieve pipeline."""
         from agent_memory.domain.retrieval import RetrievalResult
 
         mock_result = RetrievalResult(
@@ -77,73 +127,78 @@ class TestSyncMemoryClient:
             token_count=0,
             token_budget=1200,
         )
-        with patch(
-            "agent_memory.sync_client.MemoryClient.retrieve", new_callable=AsyncMock
-        ) as mock_retrieve:
-            mock_retrieve.return_value = mock_result
+        with patch("agent_memory.client.retrieve", new_callable=AsyncMock, return_value=mock_result):
             result = client.retrieve("test", context)
             assert result.query == "test"
 
-    def test_grant_consent(self, client: SyncMemoryClient):
-        """grant_consent delegates to async client."""
+    def test_grant_consent(self, client: SyncMemoryClient, context: MemoryContext):
+        """grant_consent uses context for tenant_id and purpose."""
         from agent_memory.domain.consent import ConsentRecord
         from uuid import uuid4
 
         mock_record = ConsentRecord(
             id=uuid4(),
-            tenant_id="default",
+            tenant_id="t1",
             subject_id="s1",
-            actor_id="s1",
-            purpose="general",
+            actor_id="a1",
+            purpose="test",
             allow_read=True,
             allow_write=False,
             allowed_memory_types={"preference"},
             allowed_sensitivity={"public"},
         )
-        with patch(
-            "agent_memory.sync_client.MemoryClient.grant_consent", new_callable=AsyncMock
-        ) as mock_grant:
-            mock_grant.return_value = mock_record
-            result = client.grant_consent("s1", ["preference"])
-            assert result.tenant_id == "default"
+        client._client._consent.grant_consent = AsyncMock(return_value=mock_record)
 
-    def test_revoke_consent(self, client: SyncMemoryClient):
-        """revoke_consent delegates to async client."""
+        result = client.grant_consent(context, memory_types=["preference"])
+        assert result.tenant_id == "t1"
+        assert result.purpose == "test"
+
+    def test_revoke_consent(self, client: SyncMemoryClient, context: MemoryContext):
+        """revoke_consent uses context tenant_id."""
         from agent_memory.domain.consent import ConsentRecord
         from uuid import uuid4
 
         mock_record = ConsentRecord(
             id=uuid4(),
-            tenant_id="default",
+            tenant_id="t1",
             subject_id="s1",
-            actor_id="s1",
-            purpose="general",
+            actor_id="a1",
+            purpose="test",
             allow_read=True,
             allow_write=False,
             allowed_memory_types={"preference"},
             allowed_sensitivity={"public"},
         )
-        with patch(
-            "agent_memory.sync_client.MemoryClient.revoke_consent", new_callable=AsyncMock
-        ) as mock_revoke:
-            mock_revoke.return_value = mock_record
-            result = client.revoke_consent("s1")
-            assert result.tenant_id == "default"
+        client._client._consent.list_consent = AsyncMock(return_value=[mock_record])
+        client._client._consent.revoke_consent = AsyncMock(return_value=mock_record)
 
-    def test_check_consent(self, client: SyncMemoryClient):
-        """check_consent delegates to async client."""
-        with patch(
-            "agent_memory.sync_client.MemoryClient.check_consent", new_callable=AsyncMock
-        ) as mock_check:
-            mock_check.return_value = True
-            result = client.check_consent("s1", "preference", "public")
-            assert result is True
+        result = client.revoke_consent("s1", context)
+        assert result.tenant_id == "t1"
+
+    def test_check_consent(self, client: SyncMemoryClient, context: MemoryContext):
+        """check_consent uses context for tenant_id and purpose."""
+        from agent_memory.domain.consent import ConsentRecord
+        from uuid import uuid4
+
+        mock_record = ConsentRecord(
+            id=uuid4(),
+            tenant_id="t1",
+            subject_id="s1",
+            actor_id="a1",
+            purpose="test",
+            allow_read=True,
+            allow_write=False,
+            allowed_memory_types={"preference"},
+            allowed_sensitivity={"public"},
+        )
+        client._client._consent.get_active_consent = AsyncMock(return_value=mock_record)
+
+        result = client.check_consent("s1", "preference", "public", context)
+        assert result is True
 
     def test_get_stats(self, client: SyncMemoryClient, context: MemoryContext):
-        """get_stats delegates to async client."""
-        with patch(
-            "agent_memory.sync_client.MemoryClient.get_stats", new_callable=AsyncMock
-        ) as mock_stats:
-            mock_stats.return_value = {"total_memories": 5, "by_type": {"preference": 5}}
-            result = client.get_stats(context)
-            assert result["total_memories"] == 5
+        """get_stats returns memory counts."""
+        client._client._backend.list_memories = AsyncMock(return_value=[])
+        result = client.get_stats(context)
+        assert result["total_memories"] == 0
+        assert result["by_type"] == {}

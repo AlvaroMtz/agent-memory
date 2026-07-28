@@ -87,10 +87,10 @@ For production, replace the `InMemoryBackend` with `PostgresBackend`:
 
 ```python
 from agent_memory.postgres.backend import PostgresBackendFactory
+from agent_memory.config import DatabaseConfig, MemoryConfig
 
-factory = PostgresBackendFactory(database_url="postgresql+asyncpg://...")
-backend = await factory.create()
-await backend.initialize()
+config = MemoryConfig(database=DatabaseConfig(uri="postgresql+psycopg://..."))
+backend = await PostgresBackendFactory().create(config=config)
 ```
 
 ## License

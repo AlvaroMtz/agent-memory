@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+import types
 from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
@@ -72,15 +74,17 @@ class TestCLI:
 
     def test_check_strict(self):
         """check --strict exits 0 when all gates pass."""
-        result = CliRunner().invoke(app, ["check", "--strict"])
+        with patch("agent_memory.evaluation.reports._assert_release_gates", return_value=["config OK"]):
+            result = CliRunner().invoke(app, ["check", "--strict"])
         assert result.exit_code == 0
 
     def test_serve(self):
         """serve command starts uvicorn."""
-        with patch("uvicorn.run") as mock_run:
+        fake_uvicorn = types.SimpleNamespace(run=MagicMock())
+        with patch.dict(sys.modules, {"uvicorn": fake_uvicorn}):
             result = CliRunner().invoke(app, ["serve", "--host", "127.0.0.1", "--port", "9999"])
             assert result.exit_code == 0
-            mock_run.assert_called_once()
+            fake_uvicorn.run.assert_called_once()
 
     def test_lab_seed(self):
         """lab seed runs without error."""
@@ -101,6 +105,21 @@ class TestCLI:
             ["eval", "run", "--path", "/tmp/agent-memory-nodatasets-nonexistent"],
         )
         assert result.exit_code == 0
+
+    def test_scenario_run_file(self):
+        """scenario run executes a YAML file with scenario wrappers."""
+        result = CliRunner().invoke(
+            app,
+            ["scenario", "run", "datasets/extraction/role-filtering.yaml"],
+        )
+        assert result.exit_code == 0
+        assert "Result: PASS" in result.output
+
+    def test_release_check_command(self):
+        """release check reads versioned gate configuration."""
+        result = CliRunner().invoke(app, ["release", "check", "--no-strict"])
+        assert result.exit_code == 0
+        assert "required files OK" in result.output
 
     def test_eval_report(self):
         """eval report runs without error."""
@@ -148,6 +167,7 @@ class TestCLI:
 
     def test_security_check(self):
         """security-check runs without error."""
-        result = CliRunner().invoke(app, ["security-check"])
+        with patch("agent_memory.evaluation.reports._assert_release_gates", return_value=["config OK"]):
+            result = CliRunner().invoke(app, ["security-check"])
         assert result.exit_code == 0
         assert "Security Check" in result.output

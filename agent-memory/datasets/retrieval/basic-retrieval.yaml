@@ -59,6 +59,12 @@ scenarios:
       - id: msg-1
         role: user
         content: I used to like Java.
+    setup_actions:
+      - action: set_memory_status
+        memory_type: preference
+        subject_key: programming
+        predicate: favorite_language
+        status: revoked
     expected_candidates:
       - memory_type: preference
         subject_key: programming

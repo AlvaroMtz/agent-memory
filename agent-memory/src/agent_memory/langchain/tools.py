@@ -6,8 +6,8 @@ pipeline with LangChain's tool calling system.
 
 from __future__ import annotations
 
-import asyncio
 import functools
+import inspect
 import logging
 from typing import Any, Callable
 
@@ -51,7 +51,7 @@ def trust_tool_output(
     """
 
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-        if asyncio.iscoroutinefunction(func):
+        if inspect.iscoroutinefunction(func):
 
             @functools.wraps(func)
             async def async_wrapper(*args: Any, **kwargs: Any) -> Any:

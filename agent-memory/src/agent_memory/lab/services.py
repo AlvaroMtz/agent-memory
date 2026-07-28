@@ -17,13 +17,20 @@ from agent_memory.domain.memory import MemoryRecord
 from agent_memory.ports.backend import MemoryBackend
 from agent_memory.ports.consent import ConsentProvider
 from agent_memory.ports.embedder import EmbeddingProvider
+from agent_memory.ports.extractor import MemoryExtractor
 
 
 class LabServices:
     """Services for the Memory Lab UI."""
 
-    def __init__(self, backend: MemoryBackend, embedder: EmbeddingProvider | None = None):
+    def __init__(
+        self,
+        backend: MemoryBackend,
+        extractor: MemoryExtractor,
+        embedder: EmbeddingProvider | None = None,
+    ):
         self.backend = backend
+        self.extractor = extractor
         self.embedder = embedder
 
     async def simulate_conversation(
@@ -38,7 +45,9 @@ class LabServices:
         try:
             candidates: list[MemoryCandidate] = await extract_memories(
                 messages=messages,
-                agent_id=agent_id,
+                subject_id=agent_id,
+                tenant_id="default",
+                extractor=self.extractor,
             )
 
             for candidate in candidates:
@@ -54,8 +63,6 @@ class LabServices:
 
     async def run_extraction(self) -> list[dict[str, Any]]:
         """Extract from stored conversation (returns existing candidates)."""
-        # This is a no-op that just validates the system is working
-        # In a real implementation, this might extract from stored messages
         return []
 
     async def run_retrieval(
@@ -71,9 +78,13 @@ class LabServices:
                 tenant_id="default",
                 subject_id=subject_id,
                 query=query,
-                filters={"memory_types": memory_types} if memory_types else None,
+                filters={
+                    "purpose": "lab_testing",
+                    **({"memory_types": memory_types} if memory_types else {}),
+                },
                 backend=self.backend,
                 embedder=self.embedder,
+                consent=self.backend,
                 max_tokens=max_tokens,
             )
 
@@ -130,16 +141,16 @@ class LabServices:
 
     async def get_audit_log(self, limit: int = 100) -> list[dict[str, Any]]:
         """Get recent audit events."""
-        from agent_memory.ports.audit import AuditProvider
-
         try:
-            audit_events = await self.backend.get_audit_log(limit=limit)
+            from agent_memory.domain.audit import AuditQuery
+
+            audit_events = await self.backend.query_audit(AuditQuery(tenant_id="default", limit=limit))
             return [
                 {
                     "id": str(event.id) if hasattr(event, 'id') else "unknown",
                     "action": event.action,
-                    "timestamp": event.timestamp.isoformat() if hasattr(event, 'timestamp') else str(event.timestamp),
-                    "details": event.details if hasattr(event, 'details') else str(event),
+                    "timestamp": event.created_at.isoformat(),
+                    "details": event.metadata,
                 }
                 for event in audit_events
             ]
@@ -162,11 +173,18 @@ class LabServices:
         """Grant consent for a subject."""
         try:
             consent = ConsentRecord(
+                tenant_id="default",
                 subject_id=subject_id,
-                allowed_memory_types=memory_types,
-                allowed_sensitivity=sensitivity,
+                actor_id="lab",
+                purpose="lab_testing",
+                allow_write=True,
+                allow_read=True,
+                allowed_memory_types=set(memory_types),
+                allowed_sensitivity={sensitivity},
             )
-            # Store consent in backend (if it supports it)
+            from agent_memory.context import TenantContext
+
+            await self.backend.save_consent(consent, context=TenantContext(tenant_id="default", actor_id="lab"))
             return True
         except Exception:
             return False
@@ -177,8 +195,12 @@ class LabServices:
         memory_type: str | None = None,
     ) -> bool:
         """Revoke consent for a subject."""
-        # In a real implementation, this would query and update consent
-        return True
+        from agent_memory.context import TenantContext
+
+        records = await self.backend.list_consent(tenant_id="default", subject_id=subject_id)
+        for record in records:
+            await self.backend.revoke_consent(record.id, context=TenantContext(tenant_id="default", actor_id="lab"))
+        return bool(records)
 
     async def add_memory(
         self,

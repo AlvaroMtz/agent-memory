@@ -46,6 +46,14 @@ class TestLoadScenario:
 
         assert scenario.name == "json-scenario"
 
+    def test_load_dataset_recursively(self):
+        """Dataset loading walks nested suite directories."""
+        from agent_memory.evaluation.runner import load_dataset
+
+        scenarios = load_dataset("datasets")
+        assert len(scenarios) >= 32
+        assert any(s.name == "injection_attempt_in_memory_value" for s in scenarios)
+
 
 class TestRunScenario:
     """Test running scenarios with the RuleBasedExtractor."""
@@ -99,3 +107,42 @@ class TestRunScenario:
 
         result = await run_scenario(scenario, extractor)
         assert result.passed
+
+    @pytest.mark.asyncio
+    async def test_setup_action_sets_memory_status_before_retrieval(self):
+        from agent_memory.providers.rule_based_extractor import RuleBasedExtractor
+        extractor = RuleBasedExtractor()
+
+        scenario = EvaluationScenario(
+            name="stale-memory-test",
+            context={"tenant_id": "t1", "subject_id": "s1", "purpose": "testing"},
+            messages=[
+                ScenarioMessage(id="m1", role="user", content="I used to like Java"),
+            ],
+            setup_actions=[
+                {
+                    "action": "set_memory_status",
+                    "memory_type": "preference",
+                    "subject_key": "programming",
+                    "predicate": "favorite_language",
+                    "status": "revoked",
+                }
+            ],
+            expected_candidates=[
+                {"predicate": "favorite_language", "value": "Java"},
+            ],
+            expected_memories=[
+                {
+                    "memory_type": "preference",
+                    "subject_key": "programming",
+                    "predicate": "favorite_language",
+                    "status": "revoked",
+                }
+            ],
+            expected_queries=[
+                {"memory_type": "preference", "subject_key": "programming", "max_results": 0},
+            ],
+        )
+
+        result = await run_scenario(scenario, extractor)
+        assert result.passed, f"Scenario failed: {result.errors}"

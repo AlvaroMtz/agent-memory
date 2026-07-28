@@ -1,0 +1,39 @@
+release_gates:
+  extraction_precision: 0.95
+  evidence_exact_match: 1.0
+  retrieval_precision_at_5: 0.80
+  retrieval_recall_at_5: 0.80
+  core_policy_coverage: 0.95
+  global_coverage: 0.85
+
+  cross_tenant_leakage: 0
+  unauthorized_retrieval: 0
+  unauthorized_write: 0
+  unauthorized_update: 0
+  unauthorized_delete: 0
+  revoked_memory_retrieval: 0
+  expired_memory_retrieval: 0
+  instruction_escalation: 0
+  tool_escalation: 0
+  permission_escalation: 0
+  memories_activated_without_evidence: 0
+  secrets_detected_in_logs: 0
+
+required_files:
+  - README.md
+  - LICENSE
+  - SECURITY.md
+  - CONTRIBUTING.md
+  - CODE_OF_CONDUCT.md
+  - CHANGELOG.md
+  - Makefile
+  - .env.example
+  - docker-compose.yml
+  - alembic.ini
+  - docs/architecture.md
+  - docs/threat-model.md
+  - docs/testing.md
+  - docs/datasets.md
+  - docs/memory-lab.md
+  - docs/plugin-development.md
+  - docs/production-checklist.md

@@ -1,4 +1,4 @@
-"""Custom encryption provider example — implement and use a custom provider.
+"""Custom provider example — demonstrate plugging in a custom MemoryExtractor.
 
 Run: python examples/custom_provider/custom_provider.py
 """
@@ -7,60 +7,71 @@ import asyncio
 
 from agent_memory.client import MemoryClient
 from agent_memory.context import MemoryContext
-from agent_memory.ports.encryption import EncryptionProvider
+from agent_memory.domain.candidate import MemoryCandidate
+from agent_memory.ports.extractor import MemoryExtractor
 from agent_memory.providers.in_memory_backend import InMemoryBackend
-from agent_memory.providers.rule_based_extractor import RuleBasedExtractor
 
 
-class Rot13Encryption(EncryptionProvider):
-    """A simple ROT-13 encryption provider (demonstration only)."""
+class SimpleExtractor(MemoryExtractor):
+    """A trivial extractor that produces a single preference per message."""
 
-    def encrypt(self, plaintext: str) -> bytes:
-        result = []
-        for ch in plaintext:
-            if "a" <= ch <= "z":
-                result.append(chr((ord(ch) - ord("a") + 13) % 26 + ord("a")))
-            elif "A" <= ch <= "Z":
-                result.append(chr((ord(ch) - ord("A") + 13) % 26 + ord("A")))
-            else:
-                result.append(ch)
-        return "".join(result).encode("utf-8")
-
-    def decrypt(self, ciphertext: bytes) -> str:
-        plain = ciphertext.decode("utf-8")
-        result = []
-        for ch in plain:
-            if "a" <= ch <= "z":
-                result.append(chr((ord(ch) - ord("a") - 13) % 26 + ord("a")))
-            elif "A" <= ch <= "Z":
-                result.append(chr((ord(ch) - ord("A") - 13) % 26 + ord("A")))
-            else:
-                result.append(ch)
-        return "".join(result)
+    async def extract(
+        self,
+        messages: list[dict],
+        subject_id: str,
+    ) -> list[MemoryCandidate]:
+        candidates: list[MemoryCandidate] = []
+        for msg in messages:
+            content = msg.get("content", "")
+            normalized = content.lower()
+            if "like" in normalized or "prefer" in normalized:
+                candidates.append(
+                    MemoryCandidate(
+                        memory_type="preference",
+                        subject_key="topic",
+                        predicate="likes" if "like" in normalized else "prefers",
+                        value=content,
+                        source_message_id=msg.get("id", ""),
+                        evidence_text=content,
+                        source_role=msg.get("role", "user"),
+                        confidence=0.8,
+                    )
+                )
+        return candidates
 
 
 async def main():
-    encryption = Rot13Encryption()
     backend = InMemoryBackend()
-    extractor = RuleBasedExtractor()
-    client = MemoryClient(backend, extractor=extractor)
+    extractor = SimpleExtractor()
+    client = MemoryClient(backend, extractor, consent=backend)
 
     context = MemoryContext(
-        tenant_id="t1",
+        tenant_id="default",
         subject_id="user-1",
-        actor_id="assistant-1",
-        purpose="general",
+        actor_id="agent-1",
+        purpose="example",
     )
 
-    original = "Secreto: prefiero respuestas cortas"
-    encrypted = encryption.encrypt(original)
-    decrypted = encryption.decrypt(encrypted)
-    print(f"Original:  {original}")
-    print(f"Encrypted: {encrypted!r}")
-    print(f"Decrypted: {decrypted}")
+    async with client:
+        await client.grant_consent(
+            context,
+            memory_types=["preference"],
+            sensitivity="public",
+            allow_read=True,
+            allow_write=True,
+        )
+        messages = [
+            {"id": "m1", "role": "user", "content": "I like dark mode."},
+            {"id": "m2", "role": "user", "content": "I prefer short responses."},
+        ]
+        result = await client.remember(context=context, messages=messages)
+        print(f"Persisted {result.count} memories:")
+        for m in result.memories:
+            print(f"  id={m.id}  type={m.memory_type}  pred={m.predicate}")
 
-    result = await client.remember(original, context)
-    print(f"Remembered: {len(result)} memories")
+        # Retrieve
+        retrieval = await client.retrieve("dark mode", context)
+        print(f"\nRetrieved {len(retrieval.results)} memory/memories for 'dark mode'")
 
     print("Done")
 

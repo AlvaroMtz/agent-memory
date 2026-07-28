@@ -9,8 +9,8 @@ import pytest
 
 pytestmark = [
     pytest.mark.skipif(
-        not os.environ.get("DATABASE_URL"),
-        reason="DATABASE_URL not set",
+        not os.environ.get("AGENT_MEMORY_DATABASE__URI"),
+        reason="AGENT_MEMORY_DATABASE__URI not set",
     ),
     pytest.mark.asyncio,
 ]
@@ -18,7 +18,7 @@ pytestmark = [
 
 @pytest.fixture
 def database_url() -> str:
-    url = os.environ["DATABASE_URL"]
+    url = os.environ["AGENT_MEMORY_DATABASE__URI"]
     # Normalize async driver for alembic
     return url.replace("+asyncpg", "").replace("+psycopg", "").replace("asyncpg://", "postgresql://")
 

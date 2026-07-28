@@ -22,6 +22,7 @@ from agent_memory.telemetry.metrics import (
     record_operation_duration,
     record_memory_count,
 )
+from agent_memory.telemetry import redaction
 
 
 class TestTracingProviderNoOp:
@@ -153,3 +154,46 @@ class TestModuleFunctions:
         """record_memory_count does nothing when no OTel."""
         with patch.dict("sys.modules", {"opentelemetry": None, "opentelemetry.sdk": None}):
             record_memory_count(5, "preference")
+
+
+class TestRedaction:
+    """Tests for telemetry log redaction."""
+
+    def test_redacts_common_sensitive_values(self):
+        text = (
+            "email user@example.com phone +1 555-123-4567 "
+            "api_key=abcdefghijklmnop token=abcdefghijklmnop "
+            "Authorization: Bearer abc.def-ghi password=secret"
+        )
+
+        result = redaction.redact(text)
+
+        assert "user@example.com" not in result
+        assert "555-123-4567" not in result
+        assert "abcdefghijklmnop" not in result
+        assert "password=secret" not in result
+        assert "[EMAIL]" in result
+        assert "[PHONE]" in result
+        assert "[REDACTED]" in result
+
+    def test_redacts_jwt_private_key_provider_tokens_and_base64(self):
+        text = (
+            "jwt eyJabc.def.ghi "
+            "github ghp_abcdefghijklmnopqrstuvwxyzABCDEFGHIJ123456 "
+            "slack xoxb-secret-token "
+            "base64 QWxhZGRpbjpvcGVuIHNlc2FtZQAAAAAAAAAAAAAAAAAAAAAAAA== "
+            "-----BEGIN RSA PRIVATE KEY-----secret-----END RSA PRIVATE KEY-----"
+        )
+
+        result = redaction.redact(text)
+
+        assert "[JWT_REDACTED]" in result
+        assert "ghp_[REDACTED]" in result
+        assert "xoxb-[REDACTED]" in result
+        assert "[BASE64_REDACTED]" in result
+        assert "[PRIVATE_KEY_REDACTED]" in result
+
+    def test_invalid_redaction_pattern_is_ignored(self, monkeypatch):
+        monkeypatch.setattr(redaction, "PATTERNS", [("[", "x")])
+
+        assert redaction.redact("keep me") == "keep me"

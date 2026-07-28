@@ -1,63 +1,59 @@
-"""Consent management example — save, query, and revoke consent.
+"""Consent example — demonstrate consent lifecycle with the MemoryClient.
 
-Consent is stored as versioned records in the backend.
+Shows: grant consent → remember with consent → revoke → blocked write.
 
 Run: python examples/consent/consent.py
 """
 
 import asyncio
-from uuid import uuid4
 
-from agent_memory.context import TenantContext
-from agent_memory.domain.consent import ConsentRecord
-from agent_memory.exceptions import ConsentNotFoundError
+from agent_memory.client import MemoryClient
+from agent_memory.context import MemoryContext
 from agent_memory.providers.in_memory_backend import InMemoryBackend
+from agent_memory.providers.rule_based_extractor import RuleBasedExtractor
 
 
 async def main():
     backend = InMemoryBackend()
-    subject_id = "user-1"
-    tenant_id = "t1"
-    ctx = TenantContext(tenant_id=tenant_id, actor_id="admin")
+    extractor = RuleBasedExtractor()
+    client = MemoryClient(backend, extractor, consent=backend)
 
-    # Create and save a consent record
-    record = ConsentRecord(
-        id=uuid4(),
-        tenant_id=tenant_id,
-        subject_id=subject_id,
-        purpose="general",
-        actor_id="admin",
-        allowed_memory_types={"preference", "semantic"},
-        allowed_sensitivity={"public"},
-        allow_read=True,
-        allow_write=False,
-        current_version=1,
-        is_revoked=False,
+    context = MemoryContext(
+        tenant_id="tenant-a",
+        subject_id="user-1",
+        actor_id="assistant-1",
+        purpose="example",
     )
-    await backend.save_consent(record, context=ctx)
-    print(f"Consent saved: {record.id}")
 
-    # Query active consent
-    active = await backend.get_active_consent(
-        tenant_id=tenant_id,
-        subject_id=subject_id,
-        purpose="general",
-    )
-    print(f"Active after save: {active is not None}")
+    async with client:
+        # Grant consent for the subject
+        record = await client.grant_consent(
+            context,
+            memory_types=["preference"],
+            sensitivity="public",
+            allow_read=True,
+            allow_write=True,
+        )
+        print(f"Consent granted: {record.id}")
+        print(f"  allowed_memory_types: {record.allowed_memory_types}")
+        print(f"  allowed_sensitivity: {record.allowed_sensitivity}")
 
-    # Revoke consent
-    await backend.revoke_consent(record.id, context=ctx)
-    print("Consent revoked")
+        # Remember with consent — should work
+        messages = [
+            {"id": "msg-1", "role": "user", "content": "Prefiero respuestas cortas."},
+        ]
+        result = await client.remember(context=context, messages=messages)
+        print(f"\nRemembered {result.count} memory/memories after consent")
 
-    # Verify — get_active_consent skips revoked records
-    active = await backend.get_active_consent(
-        tenant_id=tenant_id,
-        subject_id=subject_id,
-        purpose="general",
-    )
-    print(f"Active after revoke: {active is not None}")
+        # Revoke consent
+        revoked = await client.revoke_consent("user-1", context)
+        print(f"\nConsent revoked: {revoked.revoked_at}")
 
-    print("Done")
+        # Try to remember again — should be blocked
+        result2 = await client.remember(context=context, messages=messages)
+        print(f"\nAfter revoke: {result2.count} memories persisted (0 = blocked by consent)")
+
+    print("\nDone")
 
 
 if __name__ == "__main__":

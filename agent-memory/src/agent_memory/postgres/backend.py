@@ -19,6 +19,7 @@ from agent_memory.domain.consent import ConsentRecord
 from agent_memory.domain.memory import MemoryRecord, MemoryVersion
 from agent_memory.domain.retrieval import RetrievedMemory
 from agent_memory.exceptions import (
+    ConfigurationError,
     ConsentNotFoundError,
     MemoryNotFoundError,
     TenantIsolationError,
@@ -43,6 +44,10 @@ class PostgresBackend:
         config: MemoryConfig | None = None,
     ) -> None:
         self._config = config or load_config()
+        if self._config.embeddings.dimensions != 128:
+            raise ConfigurationError(
+                "PostgreSQL pgvector schema for v0.0.1 requires embeddings.dimensions=128"
+            )
         self._initialized = False
 
     async def initialize(self) -> None:
@@ -167,26 +172,51 @@ class PostgresBackend:
         query: str,
         memory_types: list[str] | None = None,
         statuses: list[str] | None = None,
+        query_vector: list[float] | None = None,
         limit: int = 8,
         token_budget: int = 1200,
     ) -> list[RetrievedMemory]:
-        """Hybrid retrieval placeholder.
+        """Retrieve active memories using structured filters and lexical scoring.
 
-        Full vector + lexical retrieval requires pgvector and is out of scope
-        for this phase. This implementation performs a basic lexical match.
+        This backend returns the persisted current version value. Vector ranking
+        is intentionally left at 0.0 unless a vector index is added by a later
+        migration; the application-level retriever still exposes the score
+        breakdown without fabricating vector similarity.
         """
-        # Delegate to in-memory like logic via repository
         async with get_session(tenant_id=tenant_id) as session:
-            # Fetch active memories for the subject
-            records = await MemoryRepository(session).list(
-                tenant_id=tenant_id,
-                subject_id=subject_id,
-                purpose=purpose,
-                limit=50,
-            )
+            repo = MemoryRepository(session)
+            vector_rows = []
+            if query_vector is not None:
+                vector_rows = await repo.search_current_versions(
+                    tenant_id=tenant_id,
+                    subject_id=subject_id,
+                    purpose=purpose,
+                    memory_types=memory_types,
+                    statuses=statuses,
+                    query_vector=query_vector,
+                    limit=limit,
+                )
+
+            if vector_rows:
+                record_version_rows = vector_rows
+            else:
+                records = await repo.list(
+                    tenant_id=tenant_id,
+                    subject_id=subject_id,
+                    purpose=purpose,
+                    limit=50,
+                )
+                record_version_rows = []
+                for record in records:
+                    version = await repo.get_current_version(
+                        record.id,
+                        version=record.current_version,
+                    )
+                    if version is not None:
+                        record_version_rows.append((record, version, 0.0))
 
             results: list[RetrievedMemory] = []
-            for record in records:
+            for record, version, vector_score in record_version_rows:
                 if record.status != "active":
                     continue
                 if record.is_expired():
@@ -196,11 +226,11 @@ class PostgresBackend:
                 if statuses and record.status not in statuses:
                     continue
 
-                # Lexical match against predicate + subject_key
-                search_text = f"{record.predicate} {record.subject_key}".lower()
-                score = 0.5
-                if query.lower() in search_text:
-                    score = 0.9
+                search_text = f"{record.predicate} {record.subject_key} {version.searchable_summary}".lower()
+                lexical_score = 0.5
+                if query and query.lower() in search_text:
+                    lexical_score = 0.9
+                score = max(vector_score, lexical_score)
 
                 results.append(
                     RetrievedMemory(
@@ -208,18 +238,20 @@ class PostgresBackend:
                         version=record.current_version,
                         memory_type=record.memory_type,
                         predicate=record.predicate,
-                        value=f"<memory {record.id}>",  # placeholder
+                        value=version.value,
                         score=score,
                         score_breakdown={
-                            "lexical": score,
-                            "vector": 0.0,
+                            "lexical": lexical_score,
+                            "vector": vector_score,
                             "recency": 1.0,
                             "confidence": 0.0,
                         },
-                        confidence=0.0,
-                        source_type="user_explicit",
-                        sensitivity="internal",
-                        created_at=record.created_at,
+                        confidence=version.confidence,
+                        source_type=version.source_type,
+                        sensitivity=version.sensitivity,
+                        created_at=version.created_at,
+                        searchable_summary=version.searchable_summary,
+                        evidence_text=version.evidence_text,
                     )
                 )
 

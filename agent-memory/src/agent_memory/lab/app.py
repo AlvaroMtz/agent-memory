@@ -28,8 +28,12 @@ from agent_memory.lab.services import LabServices
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifecycle: initialize and shutdown services."""
-    # Startup
-    app.state.services = LabServices(backend=None)  # Will be replaced via dependency injection
+    from agent_memory.providers.in_memory_backend import InMemoryBackend
+    from agent_memory.providers.rule_based_extractor import RuleBasedExtractor
+
+    backend = InMemoryBackend()
+    await backend.initialize()
+    app.state.services = LabServices(backend=backend, extractor=RuleBasedExtractor())
     yield
     # Shutdown
     if hasattr(app.state.services, 'backend') and app.state.services.backend is not None:
@@ -72,8 +76,9 @@ async def dashboard(request: Request, services: LabServices = Depends(get_servic
     """Main dashboard with stats."""
     stats = await services.get_stats()
     return templates.TemplateResponse(
-        "index.html",
-        {"request": request, "stats": stats},
+        request=request,
+        name="index.html",
+        context={"stats": stats},
     )
 
 
@@ -84,8 +89,8 @@ async def dashboard(request: Request, services: LabServices = Depends(get_servic
 async def conversation_page(request: Request):
     """Conversation simulation page."""
     return templates.TemplateResponse(
-        "conversation.html",
-        {"request": request},
+        request=request,
+        name="conversation.html",
     )
 
 
@@ -109,8 +114,8 @@ async def simulate_conversation(
 async def extract_page(request: Request):
     """Extraction results page."""
     return templates.TemplateResponse(
-        "extract.html",
-        {"request": request},
+        request=request,
+        name="extract.html",
     )
 
 
@@ -121,8 +126,8 @@ async def extract_page(request: Request):
 async def retrieve_page(request: Request):
     """Retrieval search page."""
     return templates.TemplateResponse(
-        "retrieve.html",
-        {"request": request},
+        request=request,
+        name="retrieve.html",
     )
 
 
@@ -148,8 +153,8 @@ async def search_memory(
 async def consent_page(request: Request):
     """Consent management page."""
     return templates.TemplateResponse(
-        "consent.html",
-        {"request": request},
+        request=request,
+        name="consent.html",
     )
 
 
@@ -203,8 +208,8 @@ async def revoke_consent(
 async def audit_page(request: Request):
     """View audit log page."""
     return templates.TemplateResponse(
-        "audit.html",
-        {"request": request},
+        request=request,
+        name="audit.html",
     )
 
 

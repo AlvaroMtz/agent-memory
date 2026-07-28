@@ -1,6 +1,4 @@
-"""Multi-tenant example — extract across isolated tenants.
-
-Each tenant has its own backend namespace.
+"""Multi-tenant isolation example — two tenants cannot see each other's memories.
 
 Run: python examples/multi_tenant/multi_tenant.py
 """
@@ -16,36 +14,55 @@ from agent_memory.providers.rule_based_extractor import RuleBasedExtractor
 async def main():
     backend = InMemoryBackend()
     extractor = RuleBasedExtractor()
-    client = MemoryClient(backend, extractor=extractor)
+    client = MemoryClient(backend, extractor, consent=backend)
 
-    # Two tenants, different subjects
     tenant_a = MemoryContext(
         tenant_id="tenant-a",
-        subject_id="alice",
+        subject_id="user-1",
         actor_id="assistant-1",
         purpose="general",
     )
     tenant_b = MemoryContext(
         tenant_id="tenant-b",
-        subject_id="bob",
+        subject_id="user-1",
         actor_id="assistant-1",
         purpose="general",
     )
 
-    # Extract in each tenant
-    caps_a = await client.remember("Prefiero respuestas cortas.", tenant_a)
-    caps_b = await client.remember("Prefiero respuestas largas.", tenant_b)
+    async with client:
+        for context in (tenant_a, tenant_b):
+            await client.grant_consent(
+                context,
+                memory_types=["preference"],
+                sensitivity="public",
+                allow_read=True,
+                allow_write=True,
+            )
+        messages_a = [
+            {"id": "msg-1", "role": "user", "content": "Prefiero respuestas cortas."},
+        ]
+        messages_b = [
+            {"id": "msg-1", "role": "user", "content": "Prefiero respuestas largas."},
+        ]
 
-    print(f"Tenant A: {len(caps_a)} candidates")
-    for c in caps_a:
-        print(f"  {c.predicate}: {c.value}")
+        result_a = await client.remember(context=tenant_a, messages=messages_a)
+        print(f"Tenant A remembered {result_a.count} memories")
 
-    print(f"Tenant B: {len(caps_b)} candidates")
-    for c in caps_b:
-        print(f"  {c.predicate}: {c.value}")
+        result_b = await client.remember(context=tenant_b, messages=messages_b)
+        print(f"Tenant B remembered {result_b.count} memories")
 
-    # Tenants are isolated at the backend level
-    print("\nTenant isolation works ✅")
+        # Each tenant retrieves — no overlap
+        r_a = await client.retrieve("respuestas", tenant_a)
+        print(f"\nTenant A sees {len(r_a.results)} results")
+        for mem in r_a.results:
+            print(f"  {mem.predicate}: {mem.value}")
+
+        r_b = await client.retrieve("respuestas", tenant_b)
+        print(f"Tenant B sees {len(r_b.results)} results")
+        for mem in r_b.results:
+            print(f"  {mem.predicate}: {mem.value}")
+
+    print("\nDone")
 
 
 if __name__ == "__main__":

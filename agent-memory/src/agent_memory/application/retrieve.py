@@ -47,6 +47,23 @@ async def retrieve(
     memory_types: list[str] | None = filters.get("memory_types")
     statuses: list[str] | None = filters.get("statuses", [MemoryStatusEnum.ACTIVE.value])
     purpose: str | None = filters.get("purpose")
+    limit: int = int(filters.get("limit", 50))
+
+    # Fail closed: without an active read consent for this purpose, do not search,
+    # do not compute embeddings, and do not decrypt/return anything.
+    active_consent = None
+    if consent is None:
+        logger.info("retrieve blocked: no consent provider configured")
+        return _empty_result(query or "")
+
+    active_consent = await consent.get_active_consent(
+        tenant_id=tenant_id,
+        subject_id=subject_id,
+        purpose=purpose or "",
+    )
+    if active_consent is None or not active_consent.allow_read:
+        logger.info("retrieve blocked: no active read consent")
+        return _empty_result(query or "")
 
     # ── Compute query embedding ────────────────────────────────────────
     query_vector: list[float] | None = None
@@ -69,8 +86,9 @@ async def retrieve(
                 query=effective_query,
                 memory_types=memory_types,
                 statuses=statuses,
+                query_vector=None,
                 purpose=purpose,
-                limit=50,
+                limit=limit,
             )
             for r in vec_results:
                 rid = str(r.id)
@@ -88,8 +106,9 @@ async def retrieve(
                 query=effective_query,
                 memory_types=memory_types,
                 statuses=statuses,
+                query_vector=query_vector,
                 purpose=purpose,
-                limit=50,
+                limit=limit,
             )
             for r in lex_results:
                 rid = str(r.id)
@@ -108,8 +127,9 @@ async def retrieve(
                 query="",
                 memory_types=memory_types,
                 statuses=statuses,
+                query_vector=query_vector,
                 purpose=purpose,
-                limit=50,
+                limit=limit,
             )
             all_results = fallback
         except Exception:
@@ -122,8 +142,7 @@ async def retrieve(
     all_results.sort(key=lambda r: r.score, reverse=True)
 
     # ── Consent filter ─────────────────────────────────────────────────
-    if consent is not None:
-        all_results = apply_consent_filter(all_results, consent, tenant_id, subject_id)
+    all_results = apply_consent_filter(all_results, active_consent)
 
     # ── Token budget ───────────────────────────────────────────────────
     budget_results = apply_token_budget(all_results, max_tokens)
@@ -163,23 +182,27 @@ def score_fusion(
 
 def apply_consent_filter(
     results: list[RetrievedMemory],
-    consent: ConsentProvider,
-    tenant_id: str,
-    subject_id: str,
+    consent_record,
+    tenant_id: str | None = None,
+    subject_id: str | None = None,
 ) -> list[RetrievedMemory]:
     """Remove results that the active consent policy does not allow reading."""
     filtered: list[RetrievedMemory] = []
     for r in results:
-        try:
-            if consent.check_read_access(
-                tenant_id=tenant_id,
-                subject_id=subject_id,
-                memory_type=r.memory_type,
-                sensitivity=r.sensitivity,
-            ):
+        if hasattr(consent_record, "allows_read"):
+            if consent_record.allows_read(r.memory_type, r.sensitivity):
                 filtered.append(r)
-        except Exception:
-            logger.warning("Consent check failed for result %s; excluding", r.id)
+        elif hasattr(consent_record, "check_read_access") and tenant_id is not None and subject_id is not None:
+            try:
+                if consent_record.check_read_access(
+                    tenant_id=tenant_id,
+                    subject_id=subject_id,
+                    memory_type=r.memory_type,
+                    sensitivity=r.sensitivity,
+                ):
+                    filtered.append(r)
+            except Exception:
+                logger.warning("Consent check failed for result %s; excluding", r.id)
     return filtered
 
 

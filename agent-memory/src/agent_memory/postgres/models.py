@@ -23,6 +23,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from pgvector.sqlalchemy import Vector
 
 
 class Base(DeclarativeBase):
@@ -113,6 +114,9 @@ class MemoryVersionModel(Base):
     )
     searchable_summary: Mapped[str] = mapped_column(
         Text, nullable=False, default="",
+    )
+    embedding: Mapped[list[float] | None] = mapped_column(
+        Vector(128), nullable=True,
     )
     confidence: Mapped[float] = mapped_column(
         Float, nullable=False,
