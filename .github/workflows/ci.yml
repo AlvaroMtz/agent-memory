@@ -40,6 +40,26 @@ jobs:
         run: |
           pytest tests/unit/ tests/contract/ tests/integration/ tests/security/ -q --tb=short
 
+  contract-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -e ".[dev,lab,crypto]"
+      - run: pytest tests/contract/ -q --tb=short
+
+  property-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -e ".[dev,lab,crypto]"
+      - run: pytest tests/property/ -q --tb=short
+
   migration-test:
     runs-on: ubuntu-latest
     strategy:
@@ -92,6 +112,46 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: pip install -e ".[dev,lab,crypto]"
       - run: python -m agent_memory.cli.main scenario run datasets/prompt_injection --format json
+
+  eval-extraction:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -e ".[dev,lab,crypto]"
+      - run: python -m agent_memory.cli.main scenario run datasets/extraction --format junit
+
+  eval-retrieval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -e ".[dev,lab,crypto]"
+      - run: python -m agent_memory.cli.main scenario run datasets/retrieval --format junit
+
+  eval-consent:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -e ".[dev,lab,crypto]"
+      - run: python -m agent_memory.cli.main scenario run datasets/consent --format junit
+
+  eval-multi-tenant:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -e ".[dev,lab,crypto]"
+      - run: python -m agent_memory.cli.main scenario run datasets/multi-tenant --format junit
 
   build:
     runs-on: ubuntu-latest
@@ -159,26 +219,6 @@ jobs:
                       print(f'  - {s.name}: {len(s.messages)} messages')
                   assert len(scenarios) > 0, f'No scenarios in {dataset_dir}'
           "
-
-  eval-extraction:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-      - run: pip install -e ".[dev,lab,crypto]"
-      - run: python -m agent_memory.cli.main scenario run datasets/extraction --format junit
-
-  eval-retrieval:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-      - run: pip install -e ".[dev,lab,crypto]"
-      - run: python -m agent_memory.cli.main scenario run datasets/retrieval --format junit
 
   release-gates:
     runs-on: ubuntu-latest

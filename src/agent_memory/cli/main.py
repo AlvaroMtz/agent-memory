@@ -359,7 +359,9 @@ def scenario_run(path: str, seed: int, fmt: str) -> None:
         loaded = load_scenario(dataset_path)
         scenarios = loaded if isinstance(loaded, list) else [loaded]
 
-    suite = asyncio.run(run_suite(scenarios, RuleBasedExtractor(), suite_name=dataset_path.name))
+    suite = asyncio.run(
+        run_suite(scenarios, RuleBasedExtractor(), suite_name=dataset_path.name, seed=seed)
+    )
 
     if fmt != "text":
         click.echo(generate_report(suite, fmt=fmt))
