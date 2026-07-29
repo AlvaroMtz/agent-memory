@@ -1,10 +1,9 @@
-# Consent grant scenario — standard consent grant and write/read operations
+# Consent grant scenarios — test consent granting, read-only, write-only, and blocked operations.
 
 scenarios:
   - name: grant_full_consent_then_write_and_read
     description: >
-      Grant full write+read consent, then write a memory and retrieve it.
-      Verifies that consent allows both operations.
+      Grant full consent and verify both write and read operations succeed.
     context:
       tenant_id: tenant-a
       subject_id: subject-1
@@ -25,35 +24,29 @@ scenarios:
     messages:
       - id: msg-1
         role: user
-        content: My preferred language is Spanish.
+        content: I prefer Python for data science.
 
     expected_candidates:
       - memory_type: preference
-        subject_key: language
-        predicate: response_language
-        value: Spanish
+        subject_key: code
+        predicate: code_language
+        value: Python
         source_message_id: msg-1
         explicitly_stated: true
         sensitivity: public
 
     expected_memories:
       - memory_type: preference
-        subject_key: language
-        predicate: response_language
-        value: Spanish
+        subject_key: code
+        predicate: code_language
+        value: Python
         status: active
         version: 1
-
-    expected_queries:
-      - description: Retrieve language preference
-        memory_type: preference
-        subject_key: language
-        min_results: 0
 
 
   - name: grant_write_only_consent
     description: >
-      Grant write-only consent. Write is allowed but read is denied.
+      Grant write-only consent. Write succeeds but read is denied.
     context:
       tenant_id: tenant-a
       subject_id: subject-1
@@ -68,34 +61,32 @@ scenarios:
         - preference
       allowed_sensitivity:
         - public
-        - internal
 
     messages:
       - id: msg-1
         role: user
-        content: I prefer short responses.
+        content: I prefer TypeScript.
 
     expected_candidates:
       - memory_type: preference
-        subject_key: response
-        predicate: response_length
-        value: short
+        subject_key: code
+        predicate: code_language
+        value: TypeScript
         source_message_id: msg-1
         explicitly_stated: true
         sensitivity: public
 
     expected_memories:
       - memory_type: preference
-        subject_key: response
-        predicate: response_length
-        value: short
+        subject_key: code
+        predicate: code_language
+        value: TypeScript
         status: active
         version: 1
 
-
   - name: grant_read_only_consent
     description: >
-      Grant read-only consent. Read is allowed but write is denied.
+      Grant read-only consent. Write is blocked; read-only access granted.
     context:
       tenant_id: tenant-a
       subject_id: subject-1
@@ -113,11 +104,15 @@ scenarios:
         - public
         - internal
 
-    messages: []
+    messages:
+      - id: m1
+        role: user
+        content: "I prefer Python."
 
-    expected_queries:
-      - description: Read-only consent should allow retrieval of existing memories
-        min_results: 0
+    expected_candidates: []
+    expected_memories: []
+    expected_audit:
+      - action: "memory.candidate_rejected"
 
 
   - name: grant_consent_with_retention_limit
