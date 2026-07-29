@@ -71,8 +71,8 @@ all = [
 ]
 
 [project.urls]
-homepage = "https://github.com/agent-memory/agent-memory"
-repository = "https://github.com/agent-memory/agent-memory"
+homepage = "https://github.com/AlvaroMtz/agent-memory"
+repository = "https://github.com/AlvaroMtz/agent-memory"
 documentation = "https://agent-memory.dev"
 
 [project.scripts]

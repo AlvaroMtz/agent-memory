@@ -4,7 +4,7 @@
 
 ```bash
 # Clone and install
-git clone https://github.com/agent-memory/agent-memory.git
+git clone https://github.com/AlvaroMtz/agent-memory.git
 cd agent-memory
 pip install -e ".[dev]"
 

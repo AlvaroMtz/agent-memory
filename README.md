@@ -72,7 +72,7 @@ pip install "agent-memory[all]"
 ## Architecture
 
 ```
-agent-memory/
+src/agent_memory/
 ├── domain/          # MemoryRecord, MemoryVersion, ConsentRecord, AuditEvent
 ├── ports/           # MemoryBackend, ConsentProvider, EmbeddingProvider, etc.
 ├── providers/       # InMemoryBackend, DeterministicEmbedding, FakeExtractor

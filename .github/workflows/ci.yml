@@ -20,9 +20,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: pip install ruff
       - run: ruff check src tests scripts examples/langchain_agent/agent.py
-        working-directory: agent-memory
       - run: ruff format --check src tests scripts examples/langchain_agent/agent.py
-        working-directory: agent-memory
 
   test:
     runs-on: ubuntu-latest
@@ -30,9 +28,6 @@ jobs:
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
       fail-fast: false
-    defaults:
-      run:
-        working-directory: agent-memory
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -73,18 +68,13 @@ jobs:
       - name: Install
         run: |
           pip install -e ".[dev,lab,crypto]"
-        working-directory: agent-memory
       - name: Migration test
         run: |
           AGENT_MEMORY_DATABASE__URI="postgresql+psycopg://postgres:postgres@localhost:5432/agent_memory_test" \
           pytest tests/migrations/ -q --tb=short
-        working-directory: agent-memory
 
   security-isolation:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: agent-memory
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -95,9 +85,6 @@ jobs:
 
   security-prompt-injection:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: agent-memory
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -117,18 +104,13 @@ jobs:
         run: |
           pip install build
           python -m build
-        working-directory: agent-memory
       - name: Check install from wheel
         run: |
           pip install dist/*.whl
           python -c "import agent_memory; print(f'agent-memory v{agent_memory.__version__}')"
-        working-directory: agent-memory
 
   examples:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: agent-memory
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -153,9 +135,6 @@ jobs:
 
   dataset-eval:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: agent-memory
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -171,9 +150,8 @@ jobs:
           from pathlib import Path
           from agent_memory.evaluation.runner import load_dataset
 
-          root = Path(__file__).resolve().parent
           for dataset_dir in ['datasets']:
-              d = root.parent / dataset_dir
+              d = Path(dataset_dir)
               if d.is_dir():
                   scenarios = load_dataset(str(d))
                   print(f'{dataset_dir}: {len(scenarios)} scenarios loaded')
@@ -184,9 +162,6 @@ jobs:
 
   eval-extraction:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: agent-memory
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -197,9 +172,6 @@ jobs:
 
   eval-retrieval:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: agent-memory
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -210,9 +182,6 @@ jobs:
 
   release-gates:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: agent-memory
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -223,9 +192,6 @@ jobs:
 
   dependency-scan:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: agent-memory
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
