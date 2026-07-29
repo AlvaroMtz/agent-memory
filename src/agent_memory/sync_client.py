@@ -79,11 +79,7 @@ class SyncMemoryClient:
 
         **Signature**: ``retrieve(*, context, query, limit=None)``
         """
-        return asyncio.run(
-            self._client.retrieve(
-                context=context, query=query, limit=limit
-            )
-        )
+        return asyncio.run(self._client.retrieve(context=context, query=query, limit=limit))
 
     # ── list_memories ──────────────────────────────────────────────────────────
 

@@ -29,6 +29,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import Any
 from uuid import UUID
 
 import click
@@ -74,14 +75,92 @@ def init(uri: str | None) -> None:
 
 
 @app.command()
-def doctor() -> None:
-    """Validate production requirements."""
+@click.option("--strict/--no-strict", default=False, help="Fail on operational warnings")
+def doctor(strict: bool) -> None:
+    """Validate local configuration and release-critical operational checks."""
     config = load_config()
+    checks: list[tuple[str, bool, str]] = []
     try:
         config.validate_production()
-        click.echo("All production requirements satisfied.")
+        checks.append(("configuration", True, f"environment={config.environment}"))
     except Exception as exc:
-        click.echo(f"Production requirements FAILED: {exc}", err=True)
+        checks.append(("configuration", False, str(exc)))
+
+    checks.append(
+        ("consent default deny", config.consent.default == "deny", config.consent.default)
+    )
+    checks.append(
+        ("tenant isolation strict", config.tenant.isolation == "strict", config.tenant.isolation)
+    )
+    checks.append(
+        ("postgres RLS enabled", config.tenant.postgres_rls, str(config.tenant.postgres_rls))
+    )
+    checks.append(
+        (
+            "datasets available",
+            Path(config.evaluation.get("datasets_path", "datasets")).exists(),
+            config.evaluation.get("datasets_path", "datasets"),
+        )
+    )
+
+    if config.environment == "production":
+        checks.append(
+            (
+                "production encryption",
+                config.encryption.provider != "noop",
+                config.encryption.provider,
+            )
+        )
+        checks.append(
+            (
+                "production extractor",
+                config.extraction.provider not in {"fake", "rules"},
+                config.extraction.provider,
+            )
+        )
+    else:
+        checks.append(("development encryption policy", True, config.encryption.provider))
+
+    if config.database.uri.startswith("postgresql"):
+        try:
+            import psycopg
+
+            conn_uri = config.database.uri.replace("postgresql+psycopg://", "postgresql://")
+            with psycopg.connect(conn_uri, connect_timeout=2) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT 1")
+                    cur.fetchone()
+                    cur.execute("SELECT count(*) FROM pg_extension WHERE extname = 'vector'")
+                    vector_count = cur.fetchone()[0]
+                    checks.append(("PostgreSQL reachable", True, "SELECT 1"))
+                    checks.append(("pgvector installed", vector_count == 1, str(vector_count)))
+                    cur.execute(
+                        """
+                        SELECT relname, relrowsecurity, relforcerowsecurity
+                        FROM pg_class
+                        WHERE relname IN ('memories', 'memory_versions', 'consent', 'audit_log')
+                        """
+                    )
+                    rows = cur.fetchall()
+                    if rows:
+                        checks.append(("RLS table coverage", len(rows) == 4, str(len(rows))))
+                        checks.append(
+                            (
+                                "FORCE RLS",
+                                all(row[1] and row[2] for row in rows),
+                                ",".join(row[0] for row in rows),
+                            )
+                        )
+        except Exception as exc:
+            checks.append(("PostgreSQL reachable", False, type(exc).__name__))
+
+    failed = 0
+    for name, ok, detail in checks:
+        mark = "✓" if ok else "✗"
+        click.echo(f"{mark} {name}: {detail}")
+        if not ok:
+            failed += 1
+    if failed and strict:
         sys.exit(1)
 
 
@@ -89,9 +168,43 @@ def doctor() -> None:
 
 
 @app.command()
-def migrate() -> None:
-    """Run database migrations."""
-    click.echo("Database migrations supported via Alembic. Run: alembic upgrade head")
+@click.option("--revision", default="head", help="Alembic revision to migrate to")
+@click.option(
+    "--apply/--check-only",
+    "apply_migrations",
+    default=False,
+    help="Apply migrations instead of checking Alembic configuration",
+)
+def migrate(revision: str, apply_migrations: bool) -> None:
+    """Run Alembic database migrations."""
+    try:
+        from alembic import command
+        from alembic.config import Config
+        from alembic.script import ScriptDirectory
+    except ImportError as exc:
+        if apply_migrations:
+            raise click.ClickException("Alembic is required to apply migrations") from exc
+        migration_dir = Path("src/agent_memory/postgres/migrations/versions")
+        heads = (
+            sorted(path.stem for path in migration_dir.glob("*.py"))
+            if migration_dir.exists()
+            else []
+        )
+        click.echo(
+            "Alembic not importable in this environment; migration files present: "
+            + (", ".join(heads) if heads else "none")
+        )
+        return
+
+    alembic_cfg = Config(str(Path("alembic.ini").resolve()))
+    if not apply_migrations:
+        script = ScriptDirectory.from_config(alembic_cfg)
+        click.echo(
+            f"Alembic ready. Heads: {', '.join(script.get_heads())}. Use --apply to migrate."
+        )
+        return
+    command.upgrade(alembic_cfg, revision)
+    click.echo(f"Alembic migration complete: {revision}")
 
 
 def _run(coro):
@@ -240,13 +353,38 @@ def lab(ctx: click.Context, host: str, port: int) -> None:
 @lab.command()
 def seed() -> None:
     """Seed the lab with example data."""
+
+    async def run() -> dict[str, Any]:
+        from agent_memory.lab.services import LabServices
+        from agent_memory.providers.in_memory_backend import InMemoryBackend
+        from agent_memory.providers.rule_based_extractor import RuleBasedExtractor
+
+        backend = InMemoryBackend()
+        await backend.initialize()
+        services = LabServices(backend=backend, extractor=RuleBasedExtractor())
+        await services.grant_consent("default", ["preference", "semantic"], "public")
+        memory = await services.add_memory("preference", "code_language", "Python")
+        stats = await services.get_stats()
+        return {"seeded": memory is not None, "stats": stats}
+
     click.echo("Seeding lab with example data...")
+    click.echo(json.dumps(_run(run()), indent=2, default=str))
 
 
 @lab.command()
 def reset() -> None:
     """Reset lab data."""
+
+    async def run() -> dict[str, Any]:
+        from agent_memory.providers.in_memory_backend import InMemoryBackend
+
+        backend = InMemoryBackend()
+        await backend.initialize()
+        await backend.close()
+        return {"reset": True, "backend": "in-memory"}
+
     click.echo("Resetting lab data...")
+    click.echo(json.dumps(_run(run()), indent=2, default=str))
 
 
 # ── eval ─────────────────────────────────────────────────────────────────────
@@ -589,7 +727,8 @@ def release_check(strict: bool) -> None:
         click.echo(f"FAIL: {exc}", err=True)
         sys.exit(1)
     for result in results:
-        click.echo(f"  [PASS] {result}")
+        status_label = "WARN" if "FAIL" in result or "below threshold" in result else "PASS"
+        click.echo(f"  [{status_label}] {result}")
 
 
 # ── check ────────────────────────────────────────────────────────────────────

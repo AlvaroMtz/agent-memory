@@ -28,11 +28,7 @@ def mandatory_scenarios_by_name(scenarios):
     Do not rely on YAML tags here. The compliance gate is name-based through
     REQUIRED_DATASET_CASES, so these tests must check the same inventory.
     """
-    mandatory_names = {
-        name
-        for names in REQUIRED_DATASET_CASES.values()
-        for name in names
-    }
+    mandatory_names = {name for names in REQUIRED_DATASET_CASES.values() for name in names}
     return [scenario for scenario in scenarios if scenario.name in mandatory_names]
 
 
@@ -57,6 +53,7 @@ class TestDatasetInventory:
     def test_no_duplicate_case_names(self):
         """Each mandatory case must appear exactly once."""
         from collections import Counter
+
         counts = Counter(s.name for s in self.scenarios)
         duplicates = {name for name, count in counts.items() if count > 1}
         assert not duplicates, f"Duplicate scenario names: {duplicates}"
@@ -69,8 +66,9 @@ class TestDatasetInventory:
 
     def test_each_scenario_loads_pydantic_model(self):
         """Every YAML file must be parseable as EvaluationScenario."""
-        from agent_memory.evaluation.runner import load_scenario
         from pathlib import Path
+
+        from agent_memory.evaluation.runner import load_scenario
 
         errors: list[str] = []
         for path in Path("datasets").rglob("*"):
@@ -95,9 +93,7 @@ class TestStrongAssertions:
         for scenario in mandatory_scenarios_by_name(self.scenarios):
             if not scenario.has_strong_assertions:
                 weak.append(scenario.name)
-        assert not weak, (
-            f"Mandatory scenarios without assertions: {weak}"
-        )
+        assert not weak, f"Mandatory scenarios without assertions: {weak}"
 
     def test_all_mandatory_have_strong_assertions(self):
         """Every mandatory scenario must have >= 2 distinct assertion types."""
@@ -105,12 +101,8 @@ class TestStrongAssertions:
         for scenario in mandatory_scenarios_by_name(self.scenarios):
             count = scenario.count_mandatory_assertions()
             if count < 2:
-                weak.append(
-                    f"{scenario.name} (count={count})"
-                )
-        assert not weak, (
-            f"Mandatory scenarios with insufficient assertions: {weak}"
-        )
+                weak.append(f"{scenario.name} (count={count})")
+        assert not weak, f"Mandatory scenarios with insufficient assertions: {weak}"
 
     def test_extraction_cases_have_real_assertions(self):
         scenarios = {scenario.name: scenario for scenario in self.scenarios}
@@ -128,7 +120,9 @@ class TestStrongAssertions:
             scenario = scenarios[name]
             if name in negative:
                 assert scenario.expected_accepted_candidates == [], name
-                assert scenario.expected_memories == [] or scenario.expected_rejected_candidates, name
+                assert scenario.expected_memories == [] or scenario.expected_rejected_candidates, (
+                    name
+                )
             else:
                 assert scenario.expected_candidates, name
                 assert scenario.expected_accepted_candidates, name
@@ -143,8 +137,7 @@ class TestStrongAssertions:
         assert scenarios["retrieval-type-filter"].expected_queries[0].forbidden_predicates
         assert scenarios["retrieval-sensitivity-filter"].expected_queries[0].forbidden_predicates
         assert any(
-            query.purpose
-            for query in scenarios["retrieval-purpose-filter"].expected_queries
+            query.purpose for query in scenarios["retrieval-purpose-filter"].expected_queries
         )
 
     def test_multi_tenant_cases_use_tenant_operations(self):
@@ -174,8 +167,7 @@ class TestStrongAssertions:
         }:
             scenario = scenarios[name]
             assert any(
-                memory.status == "pending_review"
-                for memory in (scenario.expected_memories or [])
+                memory.status == "pending_review" for memory in (scenario.expected_memories or [])
             ), name
 
     def test_negative_scenarios_have_assertions(self):
@@ -185,9 +177,7 @@ class TestStrongAssertions:
         for scenario in self.scenarios:
             if scenario.is_negative and not scenario.has_strong_assertions:
                 weak.append(scenario.name)
-        assert not weak, (
-            f"Negative scenarios without assertions: {weak}"
-        )
+        assert not weak, f"Negative scenarios without assertions: {weak}"
 
 
 class TestValidation:
@@ -340,15 +330,16 @@ class TestRunScenarioWithNewFields:
     @pytest.mark.asyncio
     async def test_empty_list_for_accepted_means_zero(self):
         """expected_accepted_candidates: [] must enforce exactly zero."""
-        from agent_memory.providers.rule_based_extractor import RuleBasedExtractor
         from agent_memory.evaluation.runner import run_scenario
+        from agent_memory.providers.rule_based_extractor import RuleBasedExtractor
 
         extractor = RuleBasedExtractor()
         scenario = EvaluationScenario(
             name="reject-all",
             messages=[
                 ScenarioMessage(
-                    id="m1", role="user",
+                    id="m1",
+                    role="user",
                     content="I prefer Python.",
                 ),
             ],
@@ -356,23 +347,24 @@ class TestRunScenarioWithNewFields:
         )
         result = await run_scenario(scenario, extractor)
         assert not result.passed
-        assert any(
-            "exactly 0 accepted" in e for e in result.errors
-        ), f"Expected zero check: {result.errors}"
+        assert any("exactly 0 accepted" in e for e in result.errors), (
+            f"Expected zero check: {result.errors}"
+        )
 
     @pytest.mark.asyncio
     async def test_none_accepted_falls_back_to_expected_candidates(self):
         """expected_accepted_candidates: None must fall back to
         expected_candidates for the check."""
-        from agent_memory.providers.rule_based_extractor import RuleBasedExtractor
         from agent_memory.evaluation.runner import run_scenario
+        from agent_memory.providers.rule_based_extractor import RuleBasedExtractor
 
         extractor = RuleBasedExtractor()
         scenario = EvaluationScenario(
             name="fallback-test",
             messages=[
                 ScenarioMessage(
-                    id="m1", role="user",
+                    id="m1",
+                    role="user",
                     content="I prefer Python.",
                 ),
             ],
@@ -387,15 +379,16 @@ class TestRunScenarioWithNewFields:
     @pytest.mark.asyncio
     async def test_empty_list_for_candidates_means_zero(self):
         """expected_candidates: [] must enforce exactly zero extracted."""
-        from agent_memory.providers.rule_based_extractor import RuleBasedExtractor
         from agent_memory.evaluation.runner import run_scenario
+        from agent_memory.providers.rule_based_extractor import RuleBasedExtractor
 
         extractor = RuleBasedExtractor()
         scenario = EvaluationScenario(
             name="reject-extraction",
             messages=[
                 ScenarioMessage(
-                    id="m1", role="assistant",
+                    id="m1",
+                    role="assistant",
                     content="You prefer Python.",
                 ),
             ],
@@ -407,15 +400,16 @@ class TestRunScenarioWithNewFields:
     @pytest.mark.asyncio
     async def test_forbidden_accepted_candidates(self):
         """forbidden_accepted_candidates must block specific candidates."""
-        from agent_memory.providers.rule_based_extractor import RuleBasedExtractor
         from agent_memory.evaluation.runner import run_scenario
+        from agent_memory.providers.rule_based_extractor import RuleBasedExtractor
 
         extractor = RuleBasedExtractor()
         scenario = EvaluationScenario(
             name="forbidden-coded",
             messages=[
                 ScenarioMessage(
-                    id="m1", role="user",
+                    id="m1",
+                    role="user",
                     content="I prefer Python.",
                 ),
             ],
@@ -429,22 +423,21 @@ class TestRunScenarioWithNewFields:
         )
         result = await run_scenario(scenario, extractor)
         assert not result.passed
-        assert any(
-            "Forbidden accepted candidate" in e for e in result.errors
-        )
+        assert any("Forbidden accepted candidate" in e for e in result.errors)
 
     @pytest.mark.asyncio
     async def test_empty_list_for_memories_means_zero(self):
         """expected_memories: [] must enforce exactly zero persisted memories."""
-        from agent_memory.providers.rule_based_extractor import RuleBasedExtractor
         from agent_memory.evaluation.runner import run_scenario
+        from agent_memory.providers.rule_based_extractor import RuleBasedExtractor
 
         extractor = RuleBasedExtractor()
         scenario = EvaluationScenario(
             name="no-memory",
             messages=[
                 ScenarioMessage(
-                    id="m1", role="assistant",
+                    id="m1",
+                    role="assistant",
                     content="You prefer Python.",
                 ),
             ],
@@ -456,8 +449,8 @@ class TestRunScenarioWithNewFields:
     @pytest.mark.asyncio
     async def test_expected_rejection_reasons(self):
         """expected_rejection_reasons must verify rejection reasons."""
-        from agent_memory.providers.rule_based_extractor import RuleBasedExtractor
         from agent_memory.evaluation.runner import run_scenario
+        from agent_memory.providers.rule_based_extractor import RuleBasedExtractor
 
         extractor = RuleBasedExtractor()
         # A scenario where extraction should fail (assistant message)
@@ -465,7 +458,8 @@ class TestRunScenarioWithNewFields:
             name="rejection-test",
             messages=[
                 ScenarioMessage(
-                    id="m1", role="assistant",
+                    id="m1",
+                    role="assistant",
                     content="You prefer Python.",
                 ),
             ],
@@ -483,15 +477,16 @@ class TestEmptyListSemantics:
     @pytest.mark.asyncio
     async def test_none_skip(self):
         """None should be treated as 'skip check'."""
-        from agent_memory.providers.rule_based_extractor import RuleBasedExtractor
         from agent_memory.evaluation.runner import run_scenario
+        from agent_memory.providers.rule_based_extractor import RuleBasedExtractor
 
         extractor = RuleBasedExtractor()
         scenario = EvaluationScenario(
             name="skip-check",
             messages=[
                 ScenarioMessage(
-                    id="m1", role="user",
+                    id="m1",
+                    role="user",
                     content="I prefer Python.",
                 ),
             ],
@@ -503,15 +498,16 @@ class TestEmptyListSemantics:
     @pytest.mark.asyncio
     async def test_empty_list_fails_when_results_exist(self):
         """[] must fail when results are present."""
-        from agent_memory.providers.rule_based_extractor import RuleBasedExtractor
         from agent_memory.evaluation.runner import run_scenario
+        from agent_memory.providers.rule_based_extractor import RuleBasedExtractor
 
         extractor = RuleBasedExtractor()
         scenario = EvaluationScenario(
             name="fail-empty",
             messages=[
                 ScenarioMessage(
-                    id="m1", role="user",
+                    id="m1",
+                    role="user",
                     content="I prefer Python.",
                 ),
             ],
@@ -523,15 +519,16 @@ class TestEmptyListSemantics:
     @pytest.mark.asyncio
     async def test_empty_list_passes_when_no_results(self):
         """[] must pass when results are truly zero."""
-        from agent_memory.providers.rule_based_extractor import RuleBasedExtractor
         from agent_memory.evaluation.runner import run_scenario
+        from agent_memory.providers.rule_based_extractor import RuleBasedExtractor
 
         extractor = RuleBasedExtractor()
         scenario = EvaluationScenario(
             name="pass-empty",
             messages=[
                 ScenarioMessage(
-                    id="m1", role="assistant",
+                    id="m1",
+                    role="assistant",
                     content="No extraction here.",
                 ),
             ],

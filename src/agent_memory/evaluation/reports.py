@@ -15,7 +15,6 @@ import yaml
 
 from agent_memory.evaluation.metrics.extraction import extraction_precision, extraction_recall
 
-
 REQUIRED_DATASET_SUITES = [
     "extraction",
     "retrieval",
@@ -588,7 +587,9 @@ def generate_junit_xml(results: list[EvaluationResult]) -> str:
     for r in results:
         metric_properties = _metric_properties_xml(r.metrics)
         if r.passed:
-            lines.append(f'  <testcase name="{r.scenario_name}" classname="agent_memory.evaluation">')
+            lines.append(
+                f'  <testcase name="{r.scenario_name}" classname="agent_memory.evaluation">'
+            )
             lines.extend(metric_properties)
             lines.append("  </testcase>")
         else:

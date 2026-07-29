@@ -22,7 +22,7 @@ from agent_memory.context import MemoryContext
 from agent_memory.domain.candidate import MemoryCandidate
 from agent_memory.domain.forget import ForgetResult
 from agent_memory.domain.memory import MemoryRecord
-from agent_memory.domain.retrieval import RetrievedMemory, RetrievalResult
+from agent_memory.domain.retrieval import RetrievalResult, RetrievedMemory
 from agent_memory.exceptions import ContextError
 from agent_memory.ports.encryption import EncryptionProvider
 
@@ -106,9 +106,11 @@ class MemoryMiddleware:
             # an event loop (pytest-asyncio). Use inspect to detect.
             if hasattr(active_backend, "initialize"):
                 import inspect
+
                 if inspect.iscoroutinefunction(active_backend.initialize):
                     # In async context: store for lazy init
                     import asyncio
+
                     try:
                         loop = asyncio.get_running_loop()
                         if loop.is_running():
@@ -308,7 +310,7 @@ class MemoryMiddleware:
                 f"[#{i}] type={mem.memory_type} predicate={mem.predicate} "
                 f"confidence={mem.confidence:.2f} score={mem.score:.2f} "
                 f"sensitivity={mem.sensitivity} source={mem.source_type} "
-                f"id={mem_id} tenant={tenant_id}"
+                f"id={mem_id} tenant={tenant_id} subject={subject_id}"
             )
             lines.append(f"value={mem.value}")
             lines.append(f"evidence={mem.evidence_text or 'none'}")
@@ -372,8 +374,6 @@ class _MemoryContextManager:
         )
         return self
 
-    async def __aexit__(
-        self, exc_type: Any, exc_val: Any, exc_tb: Any
-    ) -> None:
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         response = self._kwargs.get("response")
         await self._middleware.after_agent_hook(response, **self._kwargs)

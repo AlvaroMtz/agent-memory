@@ -107,12 +107,11 @@ class TracingProvider:
         if not self._otel_available:
             return None
         try:
-            from opentelemetry import trace
+            from opentelemetry import context as otel_context
 
-            context = trace.Context()
-            return context
+            return otel_context.Context()
         except Exception:
-            return None
+            return {}
 
     @contextlib.contextmanager
     def trace_operation(
@@ -173,11 +172,11 @@ def create_trace_context() -> Any:
     if not provider._otel_available:
         return None
     try:
-        from opentelemetry import trace
+        from opentelemetry import context as otel_context
 
-        return trace.Context()
+        return otel_context.Context()
     except Exception:
-        return None
+        return {}
 
 
 def trace_operation(

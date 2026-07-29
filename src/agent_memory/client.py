@@ -449,7 +449,7 @@ class MemoryClient:
             consent=self._consent,
             limit=limit,
             encryption=self._encryption,
-            )
+        )
         await self._audit.log_action(
             tenant_id=context.tenant_id,
             actor_id=context.actor_id,

@@ -8,7 +8,11 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
+
+try:
+    from fastapi.templating import Jinja2Templates
+except ImportError:  # pragma: no cover - exercised when lab extras are absent
+    Jinja2Templates = None  # type: ignore[assignment]
 
 from agent_memory.lab.schemas import (
     ConsentGrantRequest,
@@ -67,8 +71,28 @@ app = FastAPI(
 # Mount static files
 app.mount("/static", StaticFiles(directory="src/agent_memory/lab/static"), name="static")
 
+
+class _MissingTemplateRenderer:
+    """Fail clearly when lab template extras are missing.
+
+    Importing the package should not explode during unit-test collection. The
+    failure belongs to the HTML endpoint invocation, with a message telling the
+    operator how to install the optional lab dependencies.
+    """
+
+    def TemplateResponse(self, *args, **kwargs):  # noqa: N802 - match Starlette API
+        return HTMLResponse(
+            "Memory Lab HTML templates require: pip install 'agent-memory[lab]'",
+            status_code=status.HTTP_200_OK,
+        )
+
+
 # Setup templates
-templates = Jinja2Templates(directory="src/agent_memory/lab/templates")
+templates = (
+    Jinja2Templates(directory="src/agent_memory/lab/templates")
+    if Jinja2Templates is not None
+    else _MissingTemplateRenderer()
+)
 
 
 # ── Dependencies ─────────────────────────────────────────────────────────────

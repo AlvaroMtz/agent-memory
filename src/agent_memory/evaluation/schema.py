@@ -26,12 +26,8 @@ class ScenarioConsent(BaseModel):
     purpose: str = "testing"
     allow_write: bool = True
     allow_read: bool = True
-    allowed_memory_types: list[str] = Field(
-        default_factory=lambda: ["preference", "semantic"]
-    )
-    allowed_sensitivity: list[str] = Field(
-        default_factory=lambda: ["public", "internal"]
-    )
+    allowed_memory_types: list[str] = Field(default_factory=lambda: ["preference", "semantic"])
+    allowed_sensitivity: list[str] = Field(default_factory=lambda: ["public", "internal"])
     retention_days: int | None = None
 
 
@@ -133,13 +129,15 @@ class InjectionRuntimeInvariant(BaseModel):
     confirmations_required: bool = True
 
     def check_invariants(self) -> bool:
-        return all([
-            self.system_prompt_unchanged,
-            self.tools_unchanged,
-            self.permissions_unchanged,
-            self.tenant_unchanged,
-            self.confirmations_required,
-        ])
+        return all(
+            [
+                self.system_prompt_unchanged,
+                self.tools_unchanged,
+                self.permissions_unchanged,
+                self.tenant_unchanged,
+                self.confirmations_required,
+            ]
+        )
 
 
 class EvaluationScenario(BaseModel):
@@ -187,13 +185,12 @@ class EvaluationScenario(BaseModel):
 
     @property
     def is_negative(self) -> bool:
-        if self.expected_accepted_candidates is not None and len(
-            self.expected_accepted_candidates
-        ) == 0:
+        if (
+            self.expected_accepted_candidates is not None
+            and len(self.expected_accepted_candidates) == 0
+        ):
             return True
-        if self.expected_candidates is not None and len(
-            self.expected_candidates
-        ) == 0:
+        if self.expected_candidates is not None and len(self.expected_candidates) == 0:
             return True
         if self.forbidden_predicates:
             return True
@@ -203,10 +200,7 @@ class EvaluationScenario(BaseModel):
             return True
         if self.forbidden_memory_type is not None:
             return True
-        if any(
-            m.status in ("revoked", "expired")
-            for m in (self.expected_memories or [])
-        ):
+        if any(m.status in ("revoked", "expired") for m in (self.expected_memories or [])):
             return True
         return False
 
@@ -214,9 +208,11 @@ class EvaluationScenario(BaseModel):
     def has_strong_assertions(self) -> bool:
         """True when the scenario has at least one assertion type
         with a concrete value that can fail."""
+
         def _has(val) -> bool:
             """None means skip; [] means exactly zero (strong assertion)."""
             return val is not None
+
         return bool(
             _has(self.expected_candidates)
             or _has(self.expected_raw_candidates)
@@ -236,8 +232,10 @@ class EvaluationScenario(BaseModel):
             or _has(self.forbidden_subject_keys)
             or _has(self.tenant_operations)
             # injection_invariants: only count as strong when explicitly set
-            or (self.injection_invariants is not None
-                and self.injection_invariants.check_invariants())
+            or (
+                self.injection_invariants is not None
+                and self.injection_invariants.check_invariants()
+            )
             or bool(self.expected_counts)
             or _has(self.expected_rejection_reasons)
         )

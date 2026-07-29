@@ -84,11 +84,16 @@ def validate_dataset_scenarios(scenarios: list[EvaluationScenario]) -> None:
             weak.append(f"{scenario.name}(no_assertions)")
             continue
         security_like = _is_security_or_retrieval_scenario(scenario)
-        if scenario.is_negative and scenario.tags and "mandatory" in scenario.tags:
-            if not scenario.expected_rejection_reasons and not scenario.expected_rejected_candidates:
-                weak.append(f"{scenario.name}(no_rejection_reason)")
-                continue
-        for query in (scenario.expected_queries or []):
+        if (
+            scenario.is_negative
+            and scenario.tags
+            and "mandatory" in scenario.tags
+            and not scenario.expected_rejection_reasons
+            and not scenario.expected_rejected_candidates
+        ):
+            weak.append(f"{scenario.name}(no_rejection_reason)")
+            continue
+        for query in scenario.expected_queries or []:
             has_positive_retrieval_assertion = bool(
                 query.expected_predicates
                 or query.expected_memory_ids
@@ -127,8 +132,10 @@ def validate_dataset_scenarios(scenarios: list[EvaluationScenario]) -> None:
                 or scenario.expected_rejection_reasons
                 or scenario.injection_invariants is not None
             )
-            if security_like and query.min_results == 0 and not (
-                has_positive_retrieval_assertion or has_other_assertions
+            if (
+                security_like
+                and query.min_results == 0
+                and not (has_positive_retrieval_assertion or has_other_assertions)
             ):
                 weak.append(scenario.name)
 
@@ -136,6 +143,8 @@ def validate_dataset_scenarios(scenarios: list[EvaluationScenario]) -> None:
         raise ValueError(
             "Weak dataset assertions cannot prove release guarantees: " + ", ".join(weak)
         )
+
+
 def _is_security_or_retrieval_scenario(scenario: EvaluationScenario) -> bool:
     text = " ".join([scenario.name, scenario.description] + (scenario.tags or [])).lower()
     terms = (
@@ -273,7 +282,9 @@ async def run_scenario(
     candidates_found = len(extracted_candidates)
     # Raw candidate assertions: None → skip, [] → exactly zero, [...] → explicit
     if scenario.expected_raw_candidates is not None:
-        _assert_expected_candidates(errors, scenario.expected_raw_candidates, extracted_candidates, "raw candidate")
+        _assert_expected_candidates(
+            errors, scenario.expected_raw_candidates, extracted_candidates, "raw candidate"
+        )
         if len(scenario.expected_raw_candidates) == 0 and extracted_candidates:
             errors.append(
                 f"Expected exactly 0 raw candidates, but found {len(extracted_candidates)}"
@@ -314,15 +325,20 @@ async def run_scenario(
                 )
 
     # Prompt injection invariants
-    if scenario.injection_invariants is not None:
-        if not scenario.injection_invariants.check_invariants():
-            errors.append("Prompt injection runtime invariants failed")
+    if (
+        scenario.injection_invariants is not None
+        and not scenario.injection_invariants.check_invariants()
+    ):
+        errors.append("Prompt injection runtime invariants failed")
 
     # Global counts
     if scenario.expected_counts:
         total_expected = scenario.expected_counts.get("total", None)
         if total_expected is not None:
-            if scenario.expected_accepted_candidates is not None and len(scenario.expected_accepted_candidates) > 0:
+            if (
+                scenario.expected_accepted_candidates is not None
+                and len(scenario.expected_accepted_candidates) > 0
+            ):
                 actual_count = len(accepted_candidates)
             elif scenario.expected_candidates:
                 actual_count = len(extracted_candidates)
@@ -340,7 +356,9 @@ async def run_scenario(
             limit=100,
         )
         memories_found = len(all_memories)
-        security_counters["memories_activated_without_evidence"] += await _count_active_without_evidence(
+        security_counters[
+            "memories_activated_without_evidence"
+        ] += await _count_active_without_evidence(
             all_memories,
             active_backend,
             tenant_id,
@@ -350,7 +368,8 @@ async def run_scenario(
         if scenario.forbidden_memories is not None:
             for i, forbidden in enumerate(scenario.forbidden_memories):
                 matching = [
-                    m for m in all_memories
+                    m
+                    for m in all_memories
                     if (forbidden.memory_type is None or m.memory_type == forbidden.memory_type)
                     and (forbidden.subject_key is None or m.subject_key == forbidden.subject_key)
                     and (forbidden.predicate is None or m.predicate == forbidden.predicate)
@@ -362,13 +381,17 @@ async def run_scenario(
 
         # Forbidden memory type / subject keys
         if scenario.forbidden_memory_type:
-            matching_type = [m for m in all_memories if m.memory_type == scenario.forbidden_memory_type]
+            matching_type = [
+                m for m in all_memories if m.memory_type == scenario.forbidden_memory_type
+            ]
             if matching_type:
                 errors.append(
                     f"Forbidden memory type '{scenario.forbidden_memory_type}' has {len(matching_type)} instances"
                 )
         if scenario.forbidden_subject_keys:
-            matching_keys = [m for m in all_memories if m.subject_key in scenario.forbidden_subject_keys]
+            matching_keys = [
+                m for m in all_memories if m.subject_key in scenario.forbidden_subject_keys
+            ]
             if matching_keys:
                 errors.append(
                     f"Forbidden subject keys {scenario.forbidden_subject_keys} have {len(matching_keys)} instances"
@@ -388,16 +411,20 @@ async def run_scenario(
         if scenario.expected_memories is not None:
             if len(scenario.expected_memories) == 0:
                 if memories_found > 0:
-                    errors.append(
-                        f"Expected exactly 0 memories, but found {memories_found}"
-                    )
+                    errors.append(f"Expected exactly 0 memories, but found {memories_found}")
             else:
                 for i, expected in enumerate(scenario.expected_memories):
                     matching_memories = [
                         memory
                         for memory in all_memories
-                        if (expected.memory_type is None or memory.memory_type == expected.memory_type)
-                        and (expected.subject_key is None or memory.subject_key == expected.subject_key)
+                        if (
+                            expected.memory_type is None
+                            or memory.memory_type == expected.memory_type
+                        )
+                        and (
+                            expected.subject_key is None
+                            or memory.subject_key == expected.subject_key
+                        )
                         and (expected.predicate is None or memory.predicate == expected.predicate)
                         and (expected.status is None or memory.status == expected.status)
                     ]
@@ -441,7 +468,9 @@ async def run_scenario(
                     f"Query expectation failed ({expected_query.description}): got {count}, "
                     f"expected min={expected_query.min_results} max={expected_query.max_results}"
                 )
-            _assert_retrieval_expectations(errors, expected_query, result.results, security_counters)
+            _assert_retrieval_expectations(
+                errors, expected_query, result.results, security_counters
+            )
 
     # Execute explicit multi-tenant adversarial operations. Counters only move
     # when an operation succeeds or leaks when it should have been denied.
@@ -647,8 +676,14 @@ def _candidate_matches(expected: ExpectedCandidate, candidate: MemoryCandidate) 
         and (expected.subject_key is None or candidate.subject_key == expected.subject_key)
         and (expected.predicate is None or candidate.predicate == expected.predicate)
         and (expected.value is None or candidate.value == expected.value)
-        and (expected.source_message_id is None or candidate.source_message_id == expected.source_message_id)
-        and (expected.explicitly_stated is None or candidate.explicitly_stated == expected.explicitly_stated)
+        and (
+            expected.source_message_id is None
+            or candidate.source_message_id == expected.source_message_id
+        )
+        and (
+            expected.explicitly_stated is None
+            or candidate.explicitly_stated == expected.explicitly_stated
+        )
         and (expected.sensitivity is None or candidate.sensitivity == expected.sensitivity)
     )
 

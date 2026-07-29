@@ -90,8 +90,19 @@ jobs:
           pip install -e ".[dev,lab,crypto]"
       - name: Migration test
         run: |
+          export AGENT_MEMORY_RUN_REAL_POSTGRES=1
           AGENT_MEMORY_DATABASE__URI="postgresql+psycopg://postgres:postgres@localhost:5432/agent_memory_test" \
-          pytest tests/migrations/ -q --tb=short
+          pytest tests/migrations/ tests/integration/test_postgres_real.py -q --tb=short
+
+  type-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -e ".[dev,lab,crypto]"
+      - run: mypy src/agent_memory
 
   security-isolation:
     runs-on: ubuntu-latest

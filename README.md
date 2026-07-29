@@ -23,25 +23,48 @@ pip install agent-memory
 ```
 
 ```python
-from agent_memory import create_client
+from agent_memory.client import MemoryClient
 from agent_memory.context import MemoryContext
+from agent_memory.domain.consent import ConsentGrant
+from agent_memory.providers.in_memory_backend import InMemoryBackend
+from agent_memory.providers.rule_based_extractor import RuleBasedExtractor
 
-# Create a client with in-memory backend
-client = create_client()
-
-# Remember something from a conversation
-context = MemoryContext(
-    agent_id="assistant-1",
-    user_id="user-1",
-    conversation_id="conv-1",
-    tenant_id="t1",
+backend = InMemoryBackend()
+client = MemoryClient(
+    backend=backend,
+    extractor=RuleBasedExtractor(),
+    consent=backend,
 )
-result = await client.remember("The user prefers dark mode", context)
 
-# Retrieve relevant memories
-results = await client.retrieve(
-    query="dark mode preferences",
+context = MemoryContext(
+    tenant_id="t1",
+    subject_id="user-1",
+    actor_id="assistant-1",
+    purpose="assistant-personalization",
+)
+
+await backend.initialize()
+await client.grant_consent(
     context=context,
+    grant=ConsentGrant(
+        purpose="assistant-personalization",
+        allow_write=True,
+        allow_read=True,
+        allowed_memory_types={"preference", "semantic"},
+        allowed_sensitivity={"public", "internal", "personal"},
+    ),
+)
+
+result = await client.remember(
+    context=context,
+    messages=[
+        {"id": "msg-1", "role": "user", "content": "I prefer Python."},
+    ],
+)
+
+results = await client.retrieve(
+    context=context,
+    query="Which code language does the user prefer?",
 )
 for memory in results.results:
     print(f"  {memory.predicate}: {memory.value} (score: {memory.score:.2f})")
@@ -90,7 +113,7 @@ src/agent_memory/
 ## Documentation
 
 - [API Reference](https://agent-memory.dev)
-- [Memory Lab UI](docs/lab.md) — FastAPI-based development tool
+- [Memory Lab UI](docs/memory-lab.md) — FastAPI-based development tool
 - [Threat Model](docs/threat-model.md)
 - [Architecture Decision Records](docs/adr/)
 

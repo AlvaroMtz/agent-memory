@@ -249,7 +249,6 @@ class LabServices:
         except Exception:
             return None
 
-
     async def run_adversarial_panel(
         self,
         tenant_a: str = "tenant-a",

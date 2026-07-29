@@ -6,9 +6,9 @@ score fusion → rerank → consent filter → token budget → return.
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
-import base64
 from typing import Any
 
 from agent_memory.constants import MemoryStatusEnum
@@ -156,9 +156,15 @@ async def retrieve(
     decrypted_results: list[RetrievedMemory] = []
     for r in budget_results:
         if _is_encrypted_json(r.value):
-            r.value = _decrypt_value(r.value, encryption, tenant_id) if encryption else r.value
+            r.value = (
+                await _decrypt_value(r.value, encryption, tenant_id) if encryption else r.value
+            )
         if _is_encrypted_json(r.evidence_text):
-            r.evidence_text = _decrypt_evidence(r.evidence_text, encryption, tenant_id) if encryption else r.evidence_text
+            r.evidence_text = (
+                await _decrypt_evidence(r.evidence_text, encryption, tenant_id)
+                if encryption
+                else r.evidence_text
+            )
         decrypted_results.append(r)
 
     total_tokens = await _count_tokens(decrypted_results)
@@ -170,6 +176,7 @@ async def retrieve(
         token_count=total_tokens,
         token_budget=max_tokens,
     )
+
 
 def _is_encrypted_json(value: Any) -> bool:
     """Check if a value looks like encrypted JSON."""
@@ -184,8 +191,12 @@ def _is_encrypted_json(value: Any) -> bool:
     return False
 
 
-def _decrypt_value(value: Any, encryption: EncryptionProvider, tenant_id: str) -> Any:
-    """Decrypt an encrypted value. Returns raw value if decryption fails (fail-closed)."""
+async def _decrypt_value(value: Any, encryption: EncryptionProvider, tenant_id: str) -> Any:
+    """Decrypt an encrypted value. Returns the encrypted payload if decryption fails.
+
+    Retrieval must fail closed: if the provider cannot decrypt, we do not invent
+    plaintext and we do not drop errors into logs with sensitive material.
+    """
     if encryption is None:
         return value
 
@@ -203,19 +214,19 @@ def _decrypt_value(value: Any, encryption: EncryptionProvider, tenant_id: str) -
                 key_id=payload_data.get("key_id"),
             )
             ctx = EncryptionContext(tenant_id=tenant_id, purpose=None, key_id=payload.key_id)
-            plaintext = encryption.decrypt(payload, context=ctx)
+            plaintext = await encryption.decrypt(payload, context=ctx)
             return json.loads(plaintext.decode("utf-8"))
     except Exception:
         pass
     return value
 
 
-def _decrypt_evidence(
+async def _decrypt_evidence(
     evidence: str | None,
     encryption: EncryptionProvider,
     tenant_id: str,
 ) -> str | None:
-    """Decrypt evidence text. Returns None if no evidence or decryption fails."""
+    """Decrypt evidence text. Returns encrypted evidence if decryption fails."""
     if evidence is None:
         return None
 
@@ -236,7 +247,7 @@ def _decrypt_evidence(
                 key_id=payload_data.get("key_id"),
             )
             ctx = EncryptionContext(tenant_id=tenant_id, purpose=None, key_id=payload.key_id)
-            plaintext = encryption.decrypt(payload, context=ctx)
+            plaintext = await encryption.decrypt(payload, context=ctx)
             return plaintext.decode("utf-8")
     except Exception:
         pass
