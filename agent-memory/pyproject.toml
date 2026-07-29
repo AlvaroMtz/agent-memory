@@ -2,9 +2,10 @@
 name = "agent-memory"
 version = "0.0.1"
 description = "Governed Long-Term Memory for AI Agents"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 readme = "README.md"
-license = { file = "LICENSE" }
+license = "MIT"
+license-files = ["LICENSE"]
 keywords = ["memory", "ai-agents", "llm", "langchain", "langgraph", "memory-management"]
 authors = [
     { name = "agent-memory contributors" },
@@ -13,7 +14,6 @@ authors = [
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -136,5 +136,5 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 
 [build-system]
-requires = ["setuptools>=75", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
