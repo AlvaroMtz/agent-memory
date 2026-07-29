@@ -70,7 +70,7 @@ async def main():
             print(f"  id={m.id}  type={m.memory_type}  pred={m.predicate}")
 
         # Retrieve
-        retrieval = await client.retrieve("dark mode", context)
+        retrieval = await client.retrieve(context=context, query="dark mode")
         print(f"\nRetrieved {len(retrieval.results)} memory/memories for 'dark mode'")
 
     print("Done")

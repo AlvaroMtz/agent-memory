@@ -52,12 +52,12 @@ async def main():
         print(f"Tenant B remembered {result_b.count} memories")
 
         # Each tenant retrieves — no overlap
-        r_a = await client.retrieve("respuestas", tenant_a)
+        r_a = await client.retrieve(context=tenant_a, query="respuestas")
         print(f"\nTenant A sees {len(r_a.results)} results")
         for mem in r_a.results:
             print(f"  {mem.predicate}: {mem.value}")
 
-        r_b = await client.retrieve("respuestas", tenant_b)
+        r_b = await client.retrieve(context=tenant_b, query="respuestas")
         print(f"Tenant B sees {len(r_b.results)} results")
         for mem in r_b.results:
             print(f"  {mem.predicate}: {mem.value}")
