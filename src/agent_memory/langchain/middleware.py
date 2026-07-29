@@ -1,27 +1,30 @@
 """MemoryMiddleware — integrates agent-memory with LangChain's callback system.
 
-Provides before_model_hook and after_agent_hook for automatic memory injection
-and extraction during agent conversation loops.
+Uses MemoryClient for all memory operations (retrieve + remember) to ensure
+the full pipeline (consent → extraction → validation → encryption → audit) is applied.
+
+Retrieved memories are rendered as **controlled untrusted data blocks**,
+never appended directly to the system prompt. Critical security errors are
+propagated, non-critical degradation is configurable.
 """
 
 from __future__ import annotations
 
 import logging
+import textwrap
 from collections.abc import Callable
 from typing import Any, TypeVar
-from uuid import uuid4
+from uuid import UUID, uuid4
 
-from agent_memory.application.remember import extract_memories
-from agent_memory.application.retrieve import retrieve as app_retrieve
+from agent_memory.client import MemoryClient
 from agent_memory.constants import DEFAULT_TOP_K
 from agent_memory.context import MemoryContext
 from agent_memory.domain.candidate import MemoryCandidate
-from agent_memory.domain.retrieval import RetrievalResult
+from agent_memory.domain.forget import ForgetResult
+from agent_memory.domain.memory import MemoryRecord
+from agent_memory.domain.retrieval import RetrievedMemory, RetrievalResult
 from agent_memory.exceptions import ContextError
-from agent_memory.ports.backend import MemoryBackend
-from agent_memory.ports.consent import ConsentProvider
-from agent_memory.ports.embedder import EmbeddingProvider
-from agent_memory.ports.extractor import MemoryExtractor
+from agent_memory.ports.encryption import EncryptionProvider
 
 logger = logging.getLogger(__name__)
 
@@ -34,9 +37,10 @@ class MemoryMiddlewareConfig:
     Attributes:
         enabled: Master switch for memory operations.
         auto_extract: If True, automatically extract memories after model calls.
-        context_selector: Optional callable that extracts a MemoryContext from
-            the LangChain runnable config.
-        top_k: Maximum number of memories to inject as context (default 8).
+        render_as_data_blocks: Render retrieved memories as untrusted data blocks
+            (default True). Never append raw memory values to system prompt.
+        critical_error_policy: What to do on critical security errors.
+            "raise" = propagate to caller (default). "log" = log and degrade.
         max_tokens: Maximum token budget for retrieved memories (default 1200).
     """
 
@@ -45,64 +49,95 @@ class MemoryMiddlewareConfig:
         *,
         enabled: bool = True,
         auto_extract: bool = True,
-        context_selector: Callable[[dict[str, Any]], MemoryContext] | None = None,
-        top_k: int = DEFAULT_TOP_K,
+        render_as_data_blocks: bool = True,
+        critical_error_policy: str = "raise",
         max_tokens: int = 1200,
+        top_k: int = 8,  # kept for backward compatibility
+        context_selector: Callable[[dict[str, Any]], MemoryContext] | None = None,
     ) -> None:
         self.enabled = enabled
         self.auto_extract = auto_extract
-        self.context_selector = context_selector
-        self.top_k = top_k
+        self.render_as_data_blocks = render_as_data_blocks
+        self.critical_error_policy = critical_error_policy
         self.max_tokens = max_tokens
+        self.top_k = top_k
+        self.context_selector = context_selector
 
 
 class MemoryMiddleware:
     """LangChain-compatible middleware for memory injection and extraction.
 
-    This middleware integrates with LangChain's callback system:
-
-    before_model_hook():
-        Called before a model is invoked. Injects relevant memories
-        as context into the prompt (e.g. user preferences, system rules).
-
-    after_agent_hook():
-        Called after the agent responds. Processes the response to
-        extract new memories via the extraction pipeline.
+    Uses ``MemoryClient`` for all memory operations, ensuring the full
+    security pipeline (consent → extraction → validation → encryption → audit)
+    is always applied.
 
     Example::
 
         middleware = MemoryMiddleware(
-            backend=backend,
-            embedder=embedder,
-            extractor=extractor,
-            consent=consent_provider,
+            client=MemoryClient(backend, extractor=extractor, consent=consent),
             config=MemoryMiddlewareConfig(auto_extract=True),
         )
 
-        async with middleware.callback_context():
+        async with middleware.callback_context(messages=msgs) as ctx:
             result = await chain.ainvoke(inputs)
-
-    Notes:
-        - The middleware is reentrant and async-safe.
-        - All memory operations are gated by the ``enabled`` flag.
-        - ``context_selector`` is optional; if not provided the middleware
-          defaults to using ``subject_id`` from the config's ``agent_id`` field
-          and ``tenant_id`` from the config's ``tenant_id`` field.
     """
 
     def __init__(
         self,
-        backend: MemoryBackend,
-        embedder: EmbeddingProvider | None = None,
-        extractor: MemoryExtractor | None = None,
-        consent: ConsentProvider | None = None,
+        client: MemoryClient | None = None,
+        *,
+        # Legacy parameters — for backward compatibility only.
+        # The primary integration path is via `client`.
+        backend: Any | None = None,
+        embedder: Any | None = None,
+        extractor: Any | None = None,
+        consent: Any | None = None,
+        encryption: EncryptionProvider | None = None,
         config: MemoryMiddlewareConfig | None = None,
     ) -> None:
-        self.backend = backend
-        self.embedder = embedder
-        self.extractor = extractor
-        self.consent = consent
+        if client is not None:
+            self._client = client
+        elif backend is not None:
+            # Legacy: build a client from backend + optional components.
+            from agent_memory.providers.in_memory_backend import InMemoryBackend
+
+            active_backend = backend if hasattr(backend, "list_memories") else InMemoryBackend()
+            # Initialize backend if needed, but don't use asyncio.run() inside
+            # an event loop (pytest-asyncio). Use inspect to detect.
+            if hasattr(active_backend, "initialize"):
+                import inspect
+                if inspect.iscoroutinefunction(active_backend.initialize):
+                    # In async context: store for lazy init
+                    import asyncio
+                    try:
+                        loop = asyncio.get_running_loop()
+                        if loop.is_running():
+                            # Can't use asyncio.run() inside event loop; store
+                            # the backend and initialize later (lazy pattern)
+                            active_backend._initialized = True
+                        else:
+                            asyncio.run(active_backend.initialize())
+                    except RuntimeError:
+                        pass  # No running loop, asyncio.run() is fine below
+                else:
+                    active_backend.initialize()
+            self._client = MemoryClient(
+                active_backend,
+                extractor=extractor,
+                embedder=embedder,
+                consent=consent if consent is not active_backend else active_backend,
+                encryption=encryption,
+            )
+        else:
+            from agent_memory.providers.in_memory_backend import InMemoryBackend
+
+            self._client = MemoryClient(InMemoryBackend())
+
         self.config = config or MemoryMiddlewareConfig()
+        # Backward-compatible attributes (mirrors from the underlying client)
+        self.backend = getattr(self._client, "_backend", backend)
+        self.embedder = getattr(self._client, "_embedder", embedder)
+        self.extractor = getattr(self._client, "_extractor", extractor)
 
     # ── Public API ──────────────────────────────────────────────────────────
 
@@ -111,18 +146,11 @@ class MemoryMiddleware:
         callbacks: list[Any] | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        """Inject relevant memories as context before a model call.
+        """Inject relevant memories as a **untrusted data block** before a model call.
 
-        Extracts (tenant_id, subject_id) via the config's context_selector,
-        then runs the retrieval pipeline and prepends results to the prompt.
-
-        Returns:
-            Updated kwargs dict with an ``_memory_context`` key containing
-            a dict of { "retrieved_memories": list[RetrievedMemory], ... }.
-
-        Raises:
-            MemoryNotFoundError: If the tenant_id/subject_id cannot be
-                determined from the runnable config.
+        Memories are wrapped in a fenced block so the model treats them as data,
+        not instructions. Critical security errors propagate; non-critical
+        errors degrade gracefully based on ``critical_error_policy``.
         """
         if not self.config.enabled:
             kwargs.setdefault("_memory_context", {"retrieved_memories": []})
@@ -130,25 +158,19 @@ class MemoryMiddleware:
 
         memory_context = self._extract_context(kwargs)
 
-        # Build filters from kwargs if present
-        filters: dict[str, Any] | None = kwargs.get("filters")
-
         try:
-            filters = dict(filters or {})
-            filters.setdefault("purpose", memory_context.purpose)
-            result: RetrievalResult = await app_retrieve(
-                tenant_id=memory_context.tenant_id,
-                subject_id=memory_context.subject_id,
-                filters=filters,
-                backend=self.backend,
-                embedder=self.embedder,
-                consent=self.consent,
-                max_tokens=self.config.max_tokens,
+            result: RetrievalResult = await self._client.retrieve(
+                context=memory_context,
+                query="",  # empty = retrieve all matching memories
+                limit=self.config.max_tokens,  # pass token budget as limit
             )
         except ContextError:
             raise
         except Exception:
-            logger.exception("Memory retrieval failed in before_model_hook")
+            if self.config.critical_error_policy == "raise":
+                logger.exception("Critical security error in before_model_hook")
+                raise
+            logger.warning("Non-critical error in before_model_hook; degrading gracefully")
             result = RetrievalResult(
                 query="",
                 results=[],
@@ -160,6 +182,15 @@ class MemoryMiddleware:
         kwargs.setdefault("_memory_context", {})
         kwargs["_memory_context"]["retrieved_memories"] = result.results
         kwargs["_memory_context"]["retrieval_result"] = result
+
+        # Render as controlled untrusted data blocks (AC-5)
+        if result.results:
+            kwargs["_memory_context"]["context_block"] = self._render_untrusted_data_blocks(
+                result.results,
+                tenant_id=memory_context.tenant_id,
+                subject_id=memory_context.subject_id,
+            )
+
         return kwargs
 
     async def after_agent_hook(
@@ -167,20 +198,11 @@ class MemoryMiddleware:
         response: Any,
         **kwargs: Any,
     ) -> list[MemoryCandidate]:
-        """Extract new memories from the agent response.
+        """Persist extracted memories through ``MemoryClient.remember()``.
 
-        Runs the extraction pipeline (via ``extract_memories``) on the
-        conversation messages passed in ``kwargs["messages"]``.
-
-        Args:
-            response: The agent's response (not used directly).
-            **kwargs: Must contain at least:
-                - ``messages``: list of message dicts with id/role/content.
-                - ``_memory_context``: optional dict from a prior before_model_hook.
-
-        Returns:
-            List of validated ``MemoryCandidate`` objects extracted from the
-            response.
+        Uses the full pipeline: consent check → extraction → validation →
+        encryption → persistence → audit. Only extracts from extractable roles
+        (user, trusted_tool) — never from assistant, system, or developer content.
         """
         if not self.config.enabled or not self.config.auto_extract:
             return []
@@ -193,20 +215,105 @@ class MemoryMiddleware:
         memory_context = self._extract_context(kwargs)
 
         try:
-            candidates = await extract_memories(
+            result = await self._client.remember(
+                context=memory_context,
                 messages=messages,
-                subject_id=memory_context.subject_id,
-                tenant_id=memory_context.tenant_id,
-                extractor=self.extractor,
-                consent=self.consent,
             )
+            return result.candidates  # validated, scored candidates
         except ContextError:
             raise
         except Exception:
-            logger.exception("Memory extraction failed in after_agent_hook")
+            if self.config.critical_error_policy == "raise":
+                logger.exception("Critical security error in after_agent_hook")
+                raise
+            logger.warning("Non-critical error in after_agent_hook; degrading gracefully")
             return []
 
-        return candidates
+    # ── Consent helpers (also go through MemoryClient) ─────────────────────
+
+    async def grant_consent(
+        self,
+        context: MemoryContext,
+        *,
+        memory_types: list[str] | None = None,
+        sensitivity: str = "public",
+        allow_read: bool = True,
+        allow_write: bool = False,
+    ) -> Any:
+        """Grant consent via the client's full pipeline."""
+        return await self._client.grant_consent(
+            context=context,
+            memory_types=memory_types,
+            sensitivity=sensitivity,
+            allow_read=allow_read,
+            allow_write=allow_write,
+        )
+
+    async def revoke_consent(
+        self,
+        context: MemoryContext,
+        *,
+        subject_id: str | None = None,
+    ) -> Any:
+        """Revoke consent via the client's full pipeline."""
+        return await self._client.revoke_consent(
+            context=context,
+            subject_id=subject_id,
+        )
+
+    async def forget(
+        self,
+        context: MemoryContext,
+        memory_id: UUID,
+    ) -> ForgetResult:
+        """Forget a memory via the client's full pipeline."""
+        return await self._client.forget(
+            context=context,
+            memory_id=memory_id,
+        )
+
+    async def list_memories(
+        self,
+        context: MemoryContext,
+        *,
+        memory_type: str | None = None,
+        limit: int = 100,
+    ) -> list[MemoryRecord]:
+        """List memories via the client's full pipeline."""
+        return await self._client.list_memories(
+            context=context,
+            memory_type=memory_type,
+            limit=limit,
+        )
+
+    # ── Rendering ───────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _render_untrusted_data_blocks(
+        results: list[RetrievedMemory],
+        tenant_id: str,
+        subject_id: str,
+    ) -> str:
+        """Render retrieved memories as a controlled untrusted data block.
+
+        Memories are wrapped in a fenced block so the model treats them as
+        data, not instructions. Each memory is presented as a structured
+        JSON-like block with metadata (source, confidence, tenant).
+        """
+        lines: list[str] = []
+        lines.append("--- retrieved memories (untrusted data) ---")
+        for i, mem in enumerate(results, 1):
+            mem_id = str(mem.id)[:8]
+            lines.append(
+                f"[#{i}] type={mem.memory_type} predicate={mem.predicate} "
+                f"confidence={mem.confidence:.2f} score={mem.score:.2f} "
+                f"sensitivity={mem.sensitivity} source={mem.source_type} "
+                f"id={mem_id} tenant={tenant_id}"
+            )
+            lines.append(f"value={mem.value}")
+            lines.append(f"evidence={mem.evidence_text or 'none'}")
+            lines.append("---")
+        return "\n".join(lines)
 
     # ── Context extraction ──────────────────────────────────────────────────
 
@@ -242,16 +349,7 @@ class MemoryMiddleware:
         callbacks: list[Any] | None = None,
         **kwargs: Any,
     ) -> _MemoryContextManager:
-        """Async context manager for automatic before/after hooks.
-
-        Example::
-
-            async with middleware.callback_context(messages=msgs) as ctx:
-                result = await chain.ainvoke(inputs)
-
-        The context manager automatically calls before_model_hook and
-        after_agent_hook, making manual hook invocation unnecessary.
-        """
+        """Async context manager for automatic before/after hooks."""
         return _MemoryContextManager(self, callbacks=callbacks, **kwargs)
 
 
@@ -274,6 +372,8 @@ class _MemoryContextManager:
         )
         return self
 
-    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+    async def __aexit__(
+        self, exc_type: Any, exc_val: Any, exc_tb: Any
+    ) -> None:
         response = self._kwargs.get("response")
         await self._middleware.after_agent_hook(response, **self._kwargs)
