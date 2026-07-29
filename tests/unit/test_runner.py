@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from agent_memory.evaluation.runner import load_scenario, run_scenario
+from agent_memory.evaluation.runner import load_scenario, run_scenario, validate_dataset_scenarios
 from agent_memory.evaluation.schema import EvaluationScenario, ScenarioMessage
 
 
@@ -54,6 +54,17 @@ class TestLoadScenario:
         scenarios = load_dataset("datasets")
         assert len(scenarios) >= 32
         assert any(s.name == "injection_attempt_in_memory_value" for s in scenarios)
+        assert any(s.name == "injection_through_evidence" for s in scenarios)
+
+    def test_validate_dataset_rejects_weak_security_assertion(self):
+        scenario = EvaluationScenario(
+            name="prompt-injection-weak",
+            description="security scenario with only min_results zero",
+            expected_queries=[{"description": "no-op", "min_results": 0}],
+        )
+
+        with pytest.raises(ValueError, match="Weak dataset assertions"):
+            validate_dataset_scenarios([scenario])
 
 
 class TestRunScenario:
@@ -77,6 +88,9 @@ class TestRunScenario:
         result = await run_scenario(scenario, extractor)
         assert result.passed, f"Scenario failed: {result.errors}"
         assert result.candidates_found >= 1
+        assert result.raw_candidates_found >= 1
+        assert result.accepted_candidates_found >= 1
+        assert "memories_activated_without_evidence" in result.security_counters
 
     @pytest.mark.asyncio
     async def test_extraction_no_match(self):

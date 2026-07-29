@@ -49,6 +49,7 @@ class ExpectedCandidate(BaseModel):
     source_message_id: str | None = None
     explicitly_stated: bool | None = None
     sensitivity: str | None = None
+    rejection_reason: str | None = None
 
 
 class ExpectedMemory(BaseModel):
@@ -80,11 +81,19 @@ class ExpectedQuery(BaseModel):
     """Expected retrieval query and results."""
 
     description: str = ""
+    query: str | None = None
     memory_type: str | None = None
     subject_key: str | None = None
     min_results: int = 0
     max_results: int | None = None
     expected_subject_keys: list[str] | None = None
+    expected_predicates: list[str] | None = None
+    expected_memory_ids: list[str] | None = None
+    expected_ranking: list[str] | None = None
+    forbidden_predicates: list[str] = Field(default_factory=list)
+    forbidden_memory_ids: list[str] = Field(default_factory=list)
+    forbidden_tenants: list[str] = Field(default_factory=list)
+    forbidden_statuses: list[str] = Field(default_factory=list)
 
 
 class ExpectedAuditEvent(BaseModel):
@@ -93,6 +102,8 @@ class ExpectedAuditEvent(BaseModel):
     action: str | None = None
     actor_id: str | None = None
     memory_type: str | None = None
+    outcome: str | None = None
+    reason: str | None = None
 
 
 class EvaluationScenario(BaseModel):
@@ -113,9 +124,17 @@ class EvaluationScenario(BaseModel):
 
     # Expected outputs
     expected_candidates: list[ExpectedCandidate] = Field(default_factory=list)
+    expected_raw_candidates: list[ExpectedCandidate] = Field(default_factory=list)
+    expected_accepted_candidates: list[ExpectedCandidate] = Field(default_factory=list)
+    expected_rejected_candidates: list[ExpectedCandidate] = Field(default_factory=list)
     expected_memories: list[ExpectedMemory] = Field(default_factory=list)
     expected_queries: list[ExpectedQuery] = Field(default_factory=list)
     expected_audit: list[ExpectedAuditEvent] = Field(default_factory=list)
+    expected_security_counters: dict[str, int] = Field(default_factory=dict)
+    forbidden_predicates: list[str] = Field(default_factory=list)
+    forbidden_memory_ids: list[str] = Field(default_factory=list)
+    forbidden_tenants: list[str] = Field(default_factory=list)
+    forbidden_statuses: list[str] = Field(default_factory=list)
 
     # Metadata
     tags: list[str] = Field(default_factory=list)
@@ -134,6 +153,15 @@ class ScenarioResult(BaseModel):
     memories_expected: int = 0
     queries_passed: int = 0
     queries_total: int = 0
+    raw_candidates_found: int = 0
+    accepted_candidates_found: int = 0
+    rejected_candidates_found: int = 0
+    persisted_memories_found: int = 0
+    retrieved_memories_found: int = 0
+    audit_events_found: int = 0
+    rejected_reasons: list[str] = Field(default_factory=list)
+    security_counters: dict[str, int] = Field(default_factory=dict)
+    deterministic_seed: int | None = None
     duration_ms: float = 0.0
 
 

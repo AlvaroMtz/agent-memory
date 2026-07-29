@@ -6,6 +6,7 @@ import asyncio
 import io
 import json
 import os
+from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,90 @@ from typing import Any
 import yaml
 
 from agent_memory.evaluation.metrics.extraction import extraction_precision, extraction_recall
+
+
+REQUIRED_DATASET_SUITES = [
+    "extraction",
+    "retrieval",
+    "multi-tenant",
+    "consent",
+    "contradictions",
+    "prompt_injection",
+]
+
+
+REQUIRED_DATASET_CASES = {
+    "extraction": {
+        "extraction-explicit-preference",
+        "extraction-explicit-semantic-fact",
+        "extraction-negation",
+        "extraction-preference-change",
+        "extraction-ambiguous-information",
+        "extraction-assistant-invention-rejected",
+        "extraction-trusted-tool-accepted",
+        "extraction-untrusted-tool-rejected",
+        "extraction-missing-evidence-rejected",
+        "extraction-partial-evidence-rejected",
+        "extraction-low-confidence-rejected",
+        "extraction-sensitive-inference-rejected",
+    },
+    "retrieval": {
+        "retrieval-exact-query",
+        "retrieval-paraphrase-query",
+        "retrieval-irrelevant-query",
+        "retrieval-multiple-relevant-memories",
+        "retrieval-old-memory",
+        "retrieval-superseded-memory-excluded",
+        "retrieval-revoked-memory-excluded",
+        "retrieval-expired-memory-excluded",
+        "retrieval-token-budget-enforced",
+        "retrieval-purpose-filter",
+        "retrieval-type-filter",
+        "retrieval-sensitivity-filter",
+    },
+    "multi-tenant": {
+        "tenant-same-subject-different-tenants",
+        "tenant-cross-read-denied",
+        "tenant-cross-write-denied",
+        "tenant-cross-update-denied",
+        "tenant-cross-delete-denied",
+        "tenant-missing-tenant-denied",
+        "tenant-from-user-content-ignored",
+        "tenant-from-tool-call-ignored",
+        "tenant-rls-context-absent-denied",
+    },
+    "consent": {
+        "consent-none-denies-read-write",
+        "consent-read-only-denies-write",
+        "consent-write-only-denies-read",
+        "consent-memory-type-denied",
+        "consent-sensitivity-denied",
+        "consent-expired-denied",
+        "consent-revoked-denied",
+        "consent-version-change-enforced",
+    },
+    "contradictions": {
+        "contradiction-duplicate-skipped",
+        "contradiction-preference-updated",
+        "contradiction-conflicting-preferences",
+        "contradiction-semantic-equal-authority-pending-review",
+        "contradiction-trusted-tool-vs-user",
+        "contradiction-ambiguous-candidate-pending-review",
+        "contradiction-temporal-change-valid",
+    },
+    "prompt_injection": {
+        "prompt-injection-ignore-previous-instructions",
+        "prompt-injection-change-tenant",
+        "prompt-injection-add-tools",
+        "prompt-injection-elevate-permissions",
+        "prompt-injection-exfiltrate-secrets",
+        "prompt-injection-change-system-prompt",
+        "prompt-injection-authorize-external-actions",
+        "prompt-injection-execute-stored-code",
+        "prompt-injection-through-evidence",
+        "prompt-injection-through-searchable-summary",
+    },
+}
 
 
 class EvaluationResult:
@@ -66,7 +151,18 @@ def generate_report(
             scenario_name=r.scenario_name,
             passed=r.passed,
             errors=r.errors,
-            metrics={"duration_ms": r.duration_ms, "candidates_found": r.candidates_found},
+            metrics={
+                "duration_ms": r.duration_ms,
+                "candidates_found": r.candidates_found,
+                "raw_candidates_found": r.raw_candidates_found,
+                "accepted_candidates_found": r.accepted_candidates_found,
+                "rejected_candidates_found": r.rejected_candidates_found,
+                "persisted_memories_found": r.persisted_memories_found,
+                "retrieved_memories_found": r.retrieved_memories_found,
+                "audit_events_found": r.audit_events_found,
+                "security_counters": r.security_counters,
+                "deterministic_seed": r.deterministic_seed,
+            },
         )
         for r in suite.scenarios
     ]
@@ -126,7 +222,9 @@ def _assert_release_gates(strict: bool = False) -> list[str]:
     else:
         results.append(f"required files OK ({len(required)})")
 
-    # Gate 3b: required security counters must be zero in configuration.
+    # Gate 3b: required security counters must be configured as zero. This is
+    # only policy declaration; actual measured counters are enforced after the
+    # evaluation suite runs below.
     release_gates = gates_config.get("release_gates", {})
     zero_counter_names = [
         "cross_tenant_leakage",
@@ -155,11 +253,11 @@ def _assert_release_gates(strict: bool = False) -> list[str]:
     # thresholds. A release gate that only reads threshold numbers is theatre;
     # this runs the deterministic scenario suite and compares actual results.
     try:
-        metrics = asyncio.run(_run_release_evaluation_metrics(datasets_path))
+        metrics = asyncio.run(_run_release_evaluation_metrics(datasets_path, gates_config))
         results.append(
             "evaluation OK "
             f"({metrics['passed_scenarios']}/{metrics['total_scenarios']} scenarios, "
-            f"pass_rate={metrics['pass_rate']:.3f})"
+            f"pass_rate={metrics['pass_rate']:.3f}, seed={metrics.get('deterministic_seed')})"
         )
         threshold_aliases = {
             "extraction_precision": "extraction_precision",
@@ -176,6 +274,12 @@ def _assert_release_gates(strict: bool = False) -> list[str]:
             actual = metrics[metric_name]
             if actual < float(threshold):
                 failed_metrics.append(f"{gate_name}={actual:.3f} < {float(threshold):.3f}")
+        measured_counters = metrics.get("security_counters", {})
+        for counter_name in zero_counter_names:
+            if release_gates.get(counter_name) == 0:
+                actual_counter = int(measured_counters.get(counter_name, 0))
+                if actual_counter != 0:
+                    failed_metrics.append(f"{counter_name}={actual_counter} > 0")
         if metrics["failed_scenarios"]:
             failed_metrics.append(f"failed scenarios: {metrics['failed_scenarios']}")
         if failed_metrics:
@@ -189,7 +293,8 @@ def _assert_release_gates(strict: bool = False) -> list[str]:
                 f"(extraction_precision={metrics['extraction_precision']:.3f}, "
                 f"retrieval_precision_at_5={metrics['retrieval_precision_at_5']:.3f}, "
                 f"retrieval_recall_at_5={metrics['retrieval_recall_at_5']:.3f}, "
-                f"core_policy_coverage={metrics['core_policy_coverage']:.3f})"
+                f"core_policy_coverage={metrics['core_policy_coverage']:.3f}, "
+                f"security_counters={measured_counters})"
             )
     except Exception as exc:
         results.append(f"evaluation gates FAIL: {exc}")
@@ -266,14 +371,31 @@ def _assert_release_gates(strict: bool = False) -> list[str]:
     return results
 
 
-async def _run_release_evaluation_metrics(datasets_path: Path) -> dict[str, Any]:
+async def _run_release_evaluation_metrics(
+    datasets_path: Path,
+    gates_config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Run dataset scenarios and compute release-gate metrics."""
 
-    from agent_memory.evaluation.runner import load_dataset, run_suite
+    from agent_memory.evaluation.runner import (
+        load_dataset,
+        run_suite,
+        validate_dataset_scenarios,
+    )
     from agent_memory.providers.rule_based_extractor import RuleBasedExtractor
 
+    gates_config = gates_config or {}
     scenarios = load_dataset(datasets_path)
-    suite = await run_suite(scenarios, RuleBasedExtractor(), suite_name="release-gates")
+    _assert_required_dataset_suites(datasets_path)
+    _assert_required_dataset_cases(scenarios, gates_config.get("required_dataset_cases"))
+    validate_dataset_scenarios(scenarios)
+    seed = 42
+    suite = await run_suite(
+        scenarios,
+        RuleBasedExtractor(),
+        suite_name="release-gates",
+        seed=seed,
+    )
 
     total = suite.total_count
     passed = suite.pass_count
@@ -298,6 +420,20 @@ async def _run_release_evaluation_metrics(datasets_path: Path) -> dict[str, Any]
     )
     policy_total = 0
     policy_passed = 0
+    security_counters: dict[str, int] = {
+        "cross_tenant_leakage": 0,
+        "unauthorized_retrieval": 0,
+        "unauthorized_write": 0,
+        "unauthorized_update": 0,
+        "unauthorized_delete": 0,
+        "revoked_memory_retrieval": 0,
+        "expired_memory_retrieval": 0,
+        "instruction_escalation": 0,
+        "tool_escalation": 0,
+        "permission_escalation": 0,
+        "memories_activated_without_evidence": 0,
+        "secrets_detected_in_logs": 0,
+    }
 
     for result in suite.results:
         expected = result.candidates_expected
@@ -317,6 +453,8 @@ async def _run_release_evaluation_metrics(datasets_path: Path) -> dict[str, Any]
 
         query_total += result.queries_total
         query_passed += result.queries_passed
+        for counter_name, counter_value in result.security_counters.items():
+            security_counters[counter_name] = security_counters.get(counter_name, 0) + counter_value
 
         if any(term in result.scenario_name for term in policy_terms):
             policy_total += 1
@@ -338,7 +476,43 @@ async def _run_release_evaluation_metrics(datasets_path: Path) -> dict[str, Any]
         "retrieval_precision_at_5": (query_passed / query_total) if query_total else 1.0,
         "retrieval_recall_at_5": (query_passed / query_total) if query_total else 1.0,
         "core_policy_coverage": (policy_passed / policy_total) if policy_total else 1.0,
+        "security_counters": security_counters,
+        "deterministic_seed": seed,
     }
+
+
+def _assert_required_dataset_suites(datasets_path: Path) -> None:
+    """Require every security/evaluation suite directory used by release gates."""
+
+    missing = [name for name in REQUIRED_DATASET_SUITES if not (datasets_path / name).exists()]
+    if missing:
+        raise FileNotFoundError(f"Missing required dataset suites: {missing}")
+
+
+def _assert_required_dataset_cases(
+    scenarios: list[Any],
+    required_cases: Mapping[str, Iterable[str]] | None = None,
+) -> None:
+    """Require every mandatory scenario case by stable scenario name.
+
+    Suite-directory existence is not enough. A release can only claim compliance
+    if the scenario corpus contains each required case ID from the compliance
+    inventory. The caller may override the inventory through release-gates.yaml,
+    but an empty override is not allowed to silently disable this gate.
+    """
+
+    inventory: Mapping[str, Iterable[str]] = required_cases or REQUIRED_DATASET_CASES
+    scenario_names = {scenario.name for scenario in scenarios}
+    missing: dict[str, list[str]] = {}
+
+    for suite_name, required_names in inventory.items():
+        required_set = set(required_names)
+        absent = sorted(required_set - scenario_names)
+        if absent:
+            missing[suite_name] = absent
+
+    if missing:
+        raise FileNotFoundError(f"Missing required dataset cases: {missing}")
 
 
 def _run_global_coverage_metric() -> float:
@@ -412,15 +586,16 @@ def generate_junit_xml(results: list[EvaluationResult]) -> str:
     ]
 
     for r in results:
+        metric_properties = _metric_properties_xml(r.metrics)
         if r.passed:
-            lines.append(
-                f'  <testcase name="{r.scenario_name}" classname="agent_memory.evaluation">'
-                "</testcase>"
-            )
+            lines.append(f'  <testcase name="{r.scenario_name}" classname="agent_memory.evaluation">')
+            lines.extend(metric_properties)
+            lines.append("  </testcase>")
         else:
             lines.append(
                 f'  <testcase name="{r.scenario_name}" classname="agent_memory.evaluation">'
             )
+            lines.extend(metric_properties)
             for error in r.errors:
                 lines.append(
                     f'    <failure message="{_escape_xml(error)}">'
@@ -431,6 +606,38 @@ def generate_junit_xml(results: list[EvaluationResult]) -> str:
 
     lines.append("</testsuites>")
     return "\n".join(lines)
+
+
+def _metric_properties_xml(metrics: dict[str, Any]) -> list[str]:
+    """Render metrics as JUnit testcase properties.
+
+    CI systems commonly preserve JUnit properties even when they truncate
+    stdout. Flatten nested dictionaries so security counters are first-class
+    searchable values instead of an opaque blob.
+    """
+
+    flattened = _flatten_metrics(metrics)
+    if not flattened:
+        return []
+
+    lines = ["    <properties>"]
+    for name, value in sorted(flattened.items()):
+        lines.append(
+            f'      <property name="{_escape_xml(name)}" value="{_escape_xml(str(value))}" />'
+        )
+    lines.append("    </properties>")
+    return lines
+
+
+def _flatten_metrics(metrics: dict[str, Any], prefix: str = "") -> dict[str, Any]:
+    flattened: dict[str, Any] = {}
+    for key, value in metrics.items():
+        name = f"{prefix}.{key}" if prefix else str(key)
+        if isinstance(value, dict):
+            flattened.update(_flatten_metrics(value, name))
+        else:
+            flattened[name] = value
+    return flattened
 
 
 def generate_html_report(results: list[EvaluationResult]) -> str:

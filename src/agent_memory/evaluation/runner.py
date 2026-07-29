@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import random
 import time
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from agent_memory.domain.consent import ConsentGrant
 from agent_memory.evaluation.schema import (
     EvaluationScenario,
     EvaluationSuite,
+    ExpectedCandidate,
     ScenarioResult,
 )
 from agent_memory.ports.backend import MemoryBackend
@@ -67,10 +69,75 @@ def load_dataset(directory: str | Path) -> list[EvaluationScenario]:
     return scenarios
 
 
+def validate_dataset_scenarios(scenarios: list[EvaluationScenario]) -> None:
+    """Reject scenario definitions that cannot prove release guarantees.
+
+    A security/retrieval scenario with only ``min_results: 0`` is theatre: it
+    would pass even if the pipeline did nothing. Keep this validator focused on
+    measurable assertions so release gates fail closed before metrics run.
+    """
+
+    weak: list[str] = []
+    for scenario in scenarios:
+        security_like = _is_security_or_retrieval_scenario(scenario)
+        for query in scenario.expected_queries:
+            has_positive_retrieval_assertion = bool(
+                query.expected_predicates
+                or query.expected_memory_ids
+                or query.expected_ranking
+                or query.expected_subject_keys
+                or query.forbidden_predicates
+                or query.forbidden_memory_ids
+                or query.forbidden_tenants
+                or query.forbidden_statuses
+                or query.max_results is not None
+                or query.min_results > 0
+            )
+            has_other_assertions = bool(
+                scenario.expected_candidates
+                or scenario.expected_raw_candidates
+                or scenario.expected_accepted_candidates
+                or scenario.expected_rejected_candidates
+                or scenario.expected_memories
+                or scenario.expected_audit
+                or scenario.expected_security_counters
+                or scenario.forbidden_predicates
+                or scenario.forbidden_memory_ids
+                or scenario.forbidden_tenants
+                or scenario.forbidden_statuses
+            )
+            if security_like and query.min_results == 0 and not (
+                has_positive_retrieval_assertion or has_other_assertions
+            ):
+                weak.append(scenario.name)
+
+    if weak:
+        raise ValueError(
+            "Weak dataset assertions cannot prove release guarantees: " + ", ".join(weak)
+        )
+
+
+def _is_security_or_retrieval_scenario(scenario: EvaluationScenario) -> bool:
+    text = " ".join([scenario.name, scenario.description, *scenario.tags]).lower()
+    terms = (
+        "injection",
+        "escalation",
+        "tenant",
+        "unauthorized",
+        "revoked",
+        "expired",
+        "retrieval",
+        "security",
+    )
+    return any(term in text for term in terms)
+
+
 async def run_scenario(
     scenario: EvaluationScenario,
     extractor: MemoryExtractor,
     backend: MemoryBackend | None = None,
+    *,
+    seed: int | None = None,
 ) -> ScenarioResult:
     """Run a single scenario and compare results to expectations.
 
@@ -83,6 +150,8 @@ async def run_scenario(
         ScenarioResult with pass/fail and details.
     """
     start = time.perf_counter()
+    if seed is not None:
+        random.seed(seed)
     errors: list[str] = []
     candidates_found = 0
     candidates_expected = len(scenario.expected_candidates)
@@ -103,6 +172,12 @@ async def run_scenario(
         await active_backend.initialize()
 
     extracted_candidates: list[MemoryCandidate] = []
+    accepted_candidates: list[MemoryCandidate] = []
+    rejected_candidates: list[ExpectedCandidate] = []
+    rejected_reasons: list[str] = []
+    retrieved_memories_found = 0
+    audit_events_found = 0
+    security_counters = _empty_security_counters()
     memories_found = 0
     queries_passed = 0
     queries_total = len(scenario.expected_queries)
@@ -127,7 +202,8 @@ async def run_scenario(
             retention_days=scenario.consent.retention_days,
         )
         await client.grant_consent(context=context, grant=grant)
-        await client.remember(context=context, messages=messages)
+        remember_result = await client.remember(context=context, messages=messages)
+        accepted_candidates = remember_result.candidates
     except Exception as exc:
         if scenario.expected_to_fail:
             duration_ms = (time.perf_counter() - start) * 1000
@@ -142,6 +218,7 @@ async def run_scenario(
                 queries_passed=0,
                 queries_total=queries_total,
                 errors=[],
+                deterministic_seed=seed,
             )
         errors.append(f"scenario execution failed: {type(exc).__name__}: {exc}")
 
@@ -156,32 +233,29 @@ async def run_scenario(
             actor_id=actor_id,
         )
 
-    # Check expected candidates
+    if not errors:
+        audit_events = await active_backend.query_audit(AuditQuery(tenant_id=tenant_id, limit=500))
+        audit_events_found = len(audit_events)
+        for event in audit_events:
+            if event.action == "memory.candidate_rejected":
+                rejected_reasons.append(event.reason or "unknown")
+                metadata = getattr(event, "metadata", {}) or {}
+                rejected_candidates.append(
+                    ExpectedCandidate(
+                        memory_type=metadata.get("memory_type"),
+                        predicate=metadata.get("predicate"),
+                        sensitivity=metadata.get("sensitivity"),
+                        rejection_reason=event.reason,
+                    )
+                )
+
+    # Check expected candidates against full-pipeline accepted candidates. Raw
+    # extractor assertions are available separately via expected_raw_candidates.
     candidates_found = len(extracted_candidates)
-    if scenario.expected_candidates:
-        for i, expected in enumerate(scenario.expected_candidates):
-            matching = [
-                c
-                for c in extracted_candidates
-                if (expected.memory_type is None or c.memory_type == expected.memory_type)
-                and (expected.subject_key is None or c.subject_key == expected.subject_key)
-                and (expected.predicate is None or c.predicate == expected.predicate)
-                and (expected.value is None or c.value == expected.value)
-                and (
-                    expected.source_message_id is None
-                    or c.source_message_id == expected.source_message_id
-                )
-                and (
-                    expected.explicitly_stated is None
-                    or c.explicitly_stated == expected.explicitly_stated
-                )
-                and (expected.sensitivity is None or c.sensitivity == expected.sensitivity)
-            ]
-            if not matching:
-                errors.append(
-                    f"Expected candidate #{i} (predicate={expected.predicate}, "
-                    f"value={expected.value}) not found"
-                )
+    _assert_expected_candidates(errors, scenario.expected_raw_candidates, extracted_candidates, "raw candidate")
+    accepted_expectations = scenario.expected_accepted_candidates or scenario.expected_candidates
+    _assert_expected_candidates(errors, accepted_expectations, accepted_candidates, "accepted candidate")
+    _assert_expected_rejections(errors, scenario.expected_rejected_candidates, rejected_candidates)
 
     # Check expected memories against persisted records.
     if not errors:
@@ -192,6 +266,21 @@ async def run_scenario(
             limit=100,
         )
         memories_found = len(all_memories)
+        security_counters["memories_activated_without_evidence"] += await _count_active_without_evidence(
+            all_memories,
+            active_backend,
+            tenant_id,
+            actor_id,
+        )
+        _assert_forbidden_memories(
+            errors,
+            all_memories,
+            forbidden_predicates=scenario.forbidden_predicates,
+            forbidden_memory_ids=scenario.forbidden_memory_ids,
+            forbidden_tenants=scenario.forbidden_tenants,
+            forbidden_statuses=scenario.forbidden_statuses,
+            security_counters=security_counters,
+        )
         for i, expected in enumerate(scenario.expected_memories):
             matching_memories = [
                 memory
@@ -219,14 +308,9 @@ async def run_scenario(
         for expected_query in scenario.expected_queries:
             result = await client.retrieve(
                 context=context,
-                query=expected_query.description or "",
-                filters={
-                    "purpose": purpose,
-                    "memory_types": [expected_query.memory_type]
-                    if expected_query.memory_type
-                    else None,
-                },
+                query=expected_query.query or expected_query.description or "",
             )
+            retrieved_memories_found += result.total_count
             count = result.total_count
             ok = count >= expected_query.min_results
             if expected_query.max_results is not None:
@@ -238,15 +322,27 @@ async def run_scenario(
                     f"Query expectation failed ({expected_query.description}): got {count}, "
                     f"expected min={expected_query.min_results} max={expected_query.max_results}"
                 )
+            _assert_retrieval_expectations(errors, expected_query, result.results, security_counters)
 
     # Check expected audit events by action.
     if not errors and scenario.expected_audit:
         audit_events = await active_backend.query_audit(AuditQuery(tenant_id=tenant_id, limit=500))
+        audit_events_found = len(audit_events)
         for i, expected in enumerate(scenario.expected_audit):
             if expected.action and not any(
-                event.action == expected.action for event in audit_events
+                event.action == expected.action
+                and (expected.outcome is None or event.outcome == expected.outcome)
+                and (expected.reason is None or event.reason == expected.reason)
+                for event in audit_events
             ):
                 errors.append(f"Expected audit event #{i} action={expected.action} not found")
+
+    for counter_name, expected_value in scenario.expected_security_counters.items():
+        actual_value = security_counters.get(counter_name, 0)
+        if actual_value != expected_value:
+            errors.append(
+                f"Security counter {counter_name}={actual_value}, expected {expected_value}"
+            )
 
     duration_ms = (time.perf_counter() - start) * 1000
 
@@ -263,8 +359,153 @@ async def run_scenario(
         memories_expected=memories_expected,
         queries_passed=queries_passed,
         queries_total=queries_total,
+        raw_candidates_found=len(extracted_candidates),
+        accepted_candidates_found=len(accepted_candidates),
+        rejected_candidates_found=len(rejected_candidates),
+        persisted_memories_found=memories_found,
+        retrieved_memories_found=retrieved_memories_found,
+        audit_events_found=audit_events_found,
+        rejected_reasons=rejected_reasons,
+        security_counters=security_counters,
+        deterministic_seed=seed,
         errors=errors,
     )
+
+
+def _candidate_matches(expected: ExpectedCandidate, candidate: MemoryCandidate) -> bool:
+    return (
+        (expected.memory_type is None or candidate.memory_type == expected.memory_type)
+        and (expected.subject_key is None or candidate.subject_key == expected.subject_key)
+        and (expected.predicate is None or candidate.predicate == expected.predicate)
+        and (expected.value is None or candidate.value == expected.value)
+        and (expected.source_message_id is None or candidate.source_message_id == expected.source_message_id)
+        and (expected.explicitly_stated is None or candidate.explicitly_stated == expected.explicitly_stated)
+        and (expected.sensitivity is None or candidate.sensitivity == expected.sensitivity)
+    )
+
+
+def _assert_expected_candidates(
+    errors: list[str],
+    expected_candidates: list[ExpectedCandidate],
+    actual_candidates: list[MemoryCandidate],
+    label: str,
+) -> None:
+    for i, expected in enumerate(expected_candidates):
+        if not any(_candidate_matches(expected, c) for c in actual_candidates):
+            errors.append(
+                f"Expected {label} #{i} (predicate={expected.predicate}, value={expected.value}) not found"
+            )
+
+
+def _assert_expected_rejections(
+    errors: list[str],
+    expected_rejections: list[ExpectedCandidate],
+    actual_rejections: list[ExpectedCandidate],
+) -> None:
+    for i, expected in enumerate(expected_rejections):
+        if not any(
+            (expected.predicate is None or actual.predicate == expected.predicate)
+            and (expected.memory_type is None or actual.memory_type == expected.memory_type)
+            and (
+                expected.rejection_reason is None
+                or actual.rejection_reason == expected.rejection_reason
+            )
+            for actual in actual_rejections
+        ):
+            errors.append(
+                f"Expected rejected candidate #{i} "
+                f"(predicate={expected.predicate}, reason={expected.rejection_reason}) not found"
+            )
+
+
+async def _count_active_without_evidence(
+    memories: list,
+    backend: MemoryBackend,
+    tenant_id: str,
+    actor_id: str,
+) -> int:
+    count = 0
+    tenant_context = TenantContext(tenant_id=tenant_id, actor_id=actor_id)
+    for memory in memories:
+        if memory.status != "active":
+            continue
+        version = await backend.get_current_version(memory.id, context=tenant_context)
+        if version is None or not version.evidence_text:
+            count += 1
+    return count
+
+
+def _assert_forbidden_memories(
+    errors: list[str],
+    memories: list,
+    *,
+    forbidden_predicates: list[str],
+    forbidden_memory_ids: list[str],
+    forbidden_tenants: list[str],
+    forbidden_statuses: list[str],
+    security_counters: dict[str, int],
+) -> None:
+    for memory in memories:
+        memory_id = str(memory.id)
+        if memory.predicate in forbidden_predicates:
+            errors.append(f"Forbidden predicate persisted: {memory.predicate}")
+        if memory_id in forbidden_memory_ids:
+            errors.append(f"Forbidden memory ID persisted: {memory_id}")
+        if memory.tenant_id in forbidden_tenants:
+            security_counters["cross_tenant_leakage"] += 1
+            errors.append(f"Forbidden tenant persisted: {memory.tenant_id}")
+        if memory.status in forbidden_statuses:
+            errors.append(f"Forbidden memory status persisted: {memory.status}")
+
+
+def _assert_retrieval_expectations(
+    errors: list[str],
+    expected_query,
+    results: list,
+    security_counters: dict[str, int],
+) -> None:
+    predicates = [result.predicate for result in results]
+    memory_ids = [str(result.id) for result in results]
+    for predicate in expected_query.expected_predicates or []:
+        if predicate not in predicates:
+            errors.append(f"Expected retrieved predicate not found: {predicate}")
+    for memory_id in expected_query.expected_memory_ids or []:
+        if memory_id not in memory_ids:
+            errors.append(f"Expected retrieved memory ID not found: {memory_id}")
+    if expected_query.expected_ranking:
+        actual_prefix = predicates[: len(expected_query.expected_ranking)]
+        if actual_prefix != expected_query.expected_ranking:
+            errors.append(
+                f"Expected ranking {expected_query.expected_ranking}, got {actual_prefix}"
+            )
+    for predicate in expected_query.forbidden_predicates:
+        if predicate in predicates:
+            errors.append(f"Forbidden predicate retrieved: {predicate}")
+    for memory_id in expected_query.forbidden_memory_ids:
+        if memory_id in memory_ids:
+            errors.append(f"Forbidden memory ID retrieved: {memory_id}")
+    for status in expected_query.forbidden_statuses:
+        if status == "revoked" and results:
+            security_counters["revoked_memory_retrieval"] += 1
+        if status == "expired" and results:
+            security_counters["expired_memory_retrieval"] += 1
+
+
+def _empty_security_counters() -> dict[str, int]:
+    return {
+        "cross_tenant_leakage": 0,
+        "unauthorized_retrieval": 0,
+        "unauthorized_write": 0,
+        "unauthorized_update": 0,
+        "unauthorized_delete": 0,
+        "revoked_memory_retrieval": 0,
+        "expired_memory_retrieval": 0,
+        "instruction_escalation": 0,
+        "tool_escalation": 0,
+        "permission_escalation": 0,
+        "memories_activated_without_evidence": 0,
+        "secrets_detected_in_logs": 0,
+    }
 
 
 async def _apply_setup_actions(
@@ -323,6 +564,7 @@ async def run_suite(
     backend: MemoryBackend | None = None,
     *,
     suite_name: str = "dataset",
+    seed: int | None = None,
 ) -> EvaluationSuite:
     """Run all scenarios in a suite and populate results."""
     if isinstance(suite, list):
@@ -334,7 +576,7 @@ async def run_suite(
 
     results: list[ScenarioResult] = []
     for scenario in scenario_inputs:
-        result = await run_scenario(scenario, extractor, backend)
+        result = await run_scenario(scenario, extractor, backend, seed=seed)
         results.append(result)
     output.results = results
     return output
