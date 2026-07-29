@@ -1,8 +1,14 @@
 # Contradiction resolution scenarios — verify that the system detects and
 # resolves contradictions between memories.
+# Maps to REQUIRED_DATASET_CASES: contradiction-duplicate-skipped,
+# contradiction-preference-updated, contradiction-conflicting-preferences,
+# contradiction-semantic-equal-authority-pending-review,
+# contradiction-trusted-tool-vs-user, contradiction-ambiguous-candidate-pending-review,
+# contradiction-temporal-change-valid
 
 scenarios:
-  - name: duplicate_candidate_skipped
+  # 1. Duplicate candidate skipped
+  - name: contradiction-duplicate-skipped
     description: >
       If a candidate has the same predicate and value as an existing memory,
       it is classified as a duplicate and should be skipped.
@@ -44,7 +50,8 @@ scenarios:
         version: 1
     expected_queries: []
 
-  - name: preference_change_supersedes_old
+  # 2. Preference update (supersedes old)
+  - name: contradiction-preference-updated
     description: >
       A user changes their preference. The new value should supersede the old
       one. The old memory is marked superseded.
@@ -86,10 +93,47 @@ scenarios:
         version: 1
     expected_queries: []
 
-  - name: contradictory_semantic_facts_flagged
+  # 3. Conflicting preferences (same predicate, different authority)
+  - name: contradiction-conflicting-preferences
+    description: >
+      When a user states contradictory preferences about the same topic,
+      the system should resolve them with proper conflict detection.
+    context:
+      tenant_id: tenant-a
+      subject_id: subject-1
+      purpose: testing
+    consent:
+      purpose: testing
+      allow_write: true
+      allow_read: true
+      allowed_memory_types:
+        - preference
+        - semantic
+      allowed_sensitivity:
+        - public
+        - internal
+    messages:
+      - id: msg-1
+        role: user
+        content: I prefer Python.
+      - id: msg-2
+        role: user
+        content: Actually, I prefer Java now.
+    expected_candidates:
+      - memory_type: preference
+        subject_key: code
+        predicate: code_language
+        value: Java
+        source_message_id: msg-2
+        explicitly_stated: true
+        sensitivity: public
+    expected_queries: []
+
+  # 4. Semantic contradiction with equal authority → pending_review
+  - name: contradiction-semantic-equal-authority-pending-review
     description: >
       Contradictory semantic facts about the same predicate but different
-      values should be flagged for review (pending_review).
+      values with equal authority should be flagged for review.
     context:
       tenant_id: tenant-a
       subject_id: subject-1
@@ -102,6 +146,7 @@ scenarios:
         - semantic
       allowed_sensitivity:
         - public
+        - internal
     messages:
       - id: msg-1
         role: user
@@ -119,10 +164,11 @@ scenarios:
         sensitivity: public
     expected_queries: []
 
-  - name: supporting_facts_not_conflicting
+  # 5. Trusted tool vs user
+  - name: contradiction-trusted-tool-vs-user
     description: >
-      Facts that describe different aspects of the same subject are
-      supporting, not contradictory.
+      When a trusted tool and user provide conflicting information,
+      the system should detect the contradiction and handle it appropriately.
     context:
       tenant_id: tenant-a
       subject_id: subject-1
@@ -132,6 +178,50 @@ scenarios:
       allow_write: true
       allow_read: true
       allowed_memory_types:
+        - preference
+        - semantic
+      allowed_sensitivity:
+        - public
+        - internal
+    messages:
+      - id: msg-1
+        role: trusted_tool
+        content: "Detected user prefers dark mode: true"
+      - id: msg-2
+        role: user
+        content: "Detected user prefers dark mode: false"
+    expected_candidates:
+      - memory_type: preference
+        subject_key: theme
+        predicate: dark_mode
+        value: true
+        source_message_id: msg-1
+        explicitly_stated: true
+        sensitivity: public
+      - memory_type: preference
+        subject_key: theme
+        predicate: dark_mode
+        value: false
+        source_message_id: msg-2
+        explicitly_stated: true
+        sensitivity: public
+    expected_queries: []
+
+  # 6. Ambiguous candidate → pending_review
+  - name: contradiction-ambiguous-candidate-pending-review
+    description: >
+      Ambiguous candidates that could be interpreted multiple ways should be
+      flagged for manual review rather than accepted or rejected.
+    context:
+      tenant_id: tenant-a
+      subject_id: subject-1
+      purpose: testing
+    consent:
+      purpose: testing
+      allow_write: true
+      allow_read: true
+      allowed_memory_types:
+        - preference
         - semantic
       allowed_sensitivity:
         - public
@@ -139,23 +229,49 @@ scenarios:
     messages:
       - id: msg-1
         role: user
-        content: My name is John.
+        content: "I like fast, sometimes I like slow responses."
+    expected_candidates: []
+    expected_queries: []
+
+  # 7. Temporal change (valid over time)
+  - name: contradiction-temporal-change-valid
+    description: >
+      Preferences that change over time due to context shifts are valid
+      and should not be treated as contradictions.
+    context:
+      tenant_id: tenant-a
+      subject_id: subject-1
+      purpose: testing
+    consent:
+      purpose: testing
+      allow_write: true
+      allow_read: true
+      allowed_memory_types:
+        - preference
+        - semantic
+      allowed_sensitivity:
+        - public
+        - internal
+    messages:
+      - id: msg-1
+        role: user
+        content: "I prefer Python for backend work."
       - id: msg-2
         role: user
-        content: I work as an engineer.
+        content: "I prefer TypeScript for frontend work."
     expected_candidates:
-      - memory_type: semantic
-        subject_key: user
-        predicate: name
-        value: John
-        source_message_id: msg-1
+      - memory_type: preference
+        subject_key: code
+        predicate: code_language
+        value: TypeScript
+        source_message_id: msg-2
         explicitly_stated: true
         sensitivity: public
-      - memory_type: semantic
-        subject_key: employment
-        predicate: job_title
-        value: engineer
-        source_message_id: msg-2
+      - memory_type: preference
+        subject_key: code
+        predicate: code_language
+        value: Python
+        source_message_id: msg-1
         explicitly_stated: true
         sensitivity: public
     expected_queries: []
