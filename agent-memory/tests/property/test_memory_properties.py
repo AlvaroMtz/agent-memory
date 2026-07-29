@@ -12,13 +12,12 @@ without requiring database or async infrastructure.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
-from hypothesis import assume, given, strategies as st
+from hypothesis import assume, given
+from hypothesis import strategies as st
 
-from agent_memory.constants import MemoryType, Sensitivity
-from agent_memory.domain.consent import ConsentGrant, ConsentRecord
-
+from agent_memory.domain.consent import ConsentRecord
 
 # ── Custom strategies ─────────────────────────────────────────────────────────
 
@@ -30,7 +29,7 @@ sensitivity_strategy = st.sampled_from(["public", "internal", "personal", "sensi
 @st.composite
 def consent_records(draw):
     """Generate arbitrary ConsentRecord instances with valid constraints."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     tenant_id = draw(st.text(min_size=1, max_size=20))
     subject_id = draw(st.text(min_size=1, max_size=20))
@@ -82,18 +81,18 @@ def test_revoked_never_grants_access(record: ConsentRecord) -> None:
 
     for mtype in record.allowed_memory_types:
         for sens in record.allowed_sensitivity:
-            assert (
-                record.allows_write(mtype, sens) is False
-            ), f"Revoked consent should not allow write for {mtype}/{sens}"
-            assert (
-                record.allows_read(mtype, sens) is False
-            ), f"Revoked consent should not allow read for {mtype}/{sens}"
+            assert record.allows_write(mtype, sens) is False, (
+                f"Revoked consent should not allow write for {mtype}/{sens}"
+            )
+            assert record.allows_read(mtype, sens) is False, (
+                f"Revoked consent should not allow read for {mtype}/{sens}"
+            )
 
 
 @given(consent_records())
 def test_revoked_returns_false_for_is_active(record: ConsentRecord) -> None:
     """revoked_at set → is_active=False, is_revoked=True."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     assume(record.expires_at is None or record.expires_at > now)
     assume(record.revoked_at is None)
     assert record.is_active() is True
@@ -110,7 +109,7 @@ def test_revoked_returns_false_for_is_active(record: ConsentRecord) -> None:
 @given(consent_records())
 def test_expired_never_grants_access(record: ConsentRecord) -> None:
     """An expired consent must never allow read or write operations."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     assume(record.expires_at is not None)
     assume(record.expires_at < now)
@@ -120,19 +119,19 @@ def test_expired_never_grants_access(record: ConsentRecord) -> None:
 
     for mtype in record.allowed_memory_types:
         for sens in record.allowed_sensitivity:
-            assert (
-                record.allows_write(mtype, sens) is False
-            ), f"Expired consent should not allow write for {mtype}/{sens}"
-            assert (
-                record.allows_read(mtype, sens) is False
-            ), f"Expired consent should not allow read for {mtype}/{sens}"
+            assert record.allows_write(mtype, sens) is False, (
+                f"Expired consent should not allow write for {mtype}/{sens}"
+            )
+            assert record.allows_read(mtype, sens) is False, (
+                f"Expired consent should not allow read for {mtype}/{sens}"
+            )
 
 
 @given(consent_records())
 def test_non_expired_allows_when_configured(record: ConsentRecord) -> None:
     """A non-expired, non-revoked consent should allow operations
     that match its allowed types and sensitivity."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     assume(record.expires_at is None or record.expires_at > now)
     assume(record.revoked_at is None)
@@ -155,17 +154,19 @@ def test_non_expired_allows_when_configured(record: ConsentRecord) -> None:
 # ── Test: Consent with no allowed types denies everything ──────────────────────
 
 
-@given(st.builds(
-    ConsentRecord,
-    tenant_id=st.text(min_size=1, max_size=10),
-    subject_id=st.text(min_size=1, max_size=10),
-    actor_id=st.text(min_size=1, max_size=10),
-    purpose=st.text(min_size=1, max_size=10),
-    allow_write=st.just(True),
-    allow_read=st.just(True),
-    allowed_memory_types=st.just(set()),
-    allowed_sensitivity=st.sets(sensitivity_strategy, min_size=1, max_size=4),
-))
+@given(
+    st.builds(
+        ConsentRecord,
+        tenant_id=st.text(min_size=1, max_size=10),
+        subject_id=st.text(min_size=1, max_size=10),
+        actor_id=st.text(min_size=1, max_size=10),
+        purpose=st.text(min_size=1, max_size=10),
+        allow_write=st.just(True),
+        allow_read=st.just(True),
+        allowed_memory_types=st.just(set()),
+        allowed_sensitivity=st.sets(sensitivity_strategy, min_size=1, max_size=4),
+    )
+)
 def test_empty_allowed_types_deny_everything(record: ConsentRecord) -> None:
     """If allowed_memory_types is empty, no memory type is allowed."""
     assert record.is_active() is True
@@ -194,7 +195,7 @@ def test_tenant_id_preserved(record: ConsentRecord) -> None:
 @given(consent_records())
 def test_grant_revoke_lifecycle(record: ConsentRecord) -> None:
     """After revoke, is_active flips, is_revoked flips, access is denied."""
-    assume(record.expires_at is None or record.expires_at > datetime.now(timezone.utc))
+    assume(record.expires_at is None or record.expires_at > datetime.now(UTC))
     assume(record.revoked_at is None)
 
     # Before revoke — should be active

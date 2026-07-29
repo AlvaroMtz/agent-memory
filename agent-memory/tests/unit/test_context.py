@@ -29,7 +29,10 @@ class TestMemoryContext:
 
     def test_frozen(self):
         ctx = MemoryContext(
-            tenant_id="t", subject_id="s", actor_id="a", purpose="p",
+            tenant_id="t",
+            subject_id="s",
+            actor_id="a",
+            purpose="p",
         )
         with pytest.raises(AttributeError):
             ctx.tenant_id = "other"  # type: ignore
@@ -81,9 +84,15 @@ class TestMemoryContext:
 
     def test_unique_request_ids(self):
         ctx1 = MemoryContext(
-            tenant_id="t", subject_id="s", actor_id="a", purpose="p",
+            tenant_id="t",
+            subject_id="s",
+            actor_id="a",
+            purpose="p",
         )
         ctx2 = MemoryContext(
-            tenant_id="t", subject_id="s", actor_id="a", purpose="p",
+            tenant_id="t",
+            subject_id="s",
+            actor_id="a",
+            purpose="p",
         )
         assert ctx1.request_id != ctx2.request_id

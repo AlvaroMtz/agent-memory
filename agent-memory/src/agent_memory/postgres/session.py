@@ -23,7 +23,6 @@ from sqlalchemy.ext.asyncio import (
 from agent_memory.config import MemoryConfig, load_config
 from agent_memory.constants import TENANT_CONTEXT_PARAM
 
-
 _engine: AsyncEngine | None = None
 _sessionmaker: async_sessionmaker[AsyncSession] | None = None
 

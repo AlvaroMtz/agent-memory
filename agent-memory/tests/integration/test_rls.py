@@ -10,7 +10,7 @@ Validates:
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -21,11 +21,11 @@ from agent_memory.postgres.rls import (
     disable_rqls_sql,
     drop_rls_policies_sql,
     enable_rqls_sql,
-    set_session_tenant_sql,
     set_session_actor_sql,
+    set_session_tenant,
+    set_session_tenant_sql,
     setup_rqls,
     teardown_rqls,
-    set_session_tenant,
 )
 
 
@@ -64,8 +64,9 @@ class TestRLSSQLStatements:
         """memory_versions policy uses a subquery against memories."""
         sql = apply_rls_policies_sql()
         memory_versions_section = (
-            sql.split("CREATE POLICY tenant_isolation ON memory_versions")[1]
-            .split("CREATE POLICY")[0]
+            sql.split("CREATE POLICY tenant_isolation ON memory_versions")[1].split(
+                "CREATE POLICY"
+            )[0]
             if "CREATE POLICY tenant_isolation ON memory_versions" in sql
             else ""
         )

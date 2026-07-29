@@ -8,7 +8,7 @@ absent, all operations become no-ops.
 from __future__ import annotations
 
 import logging
-from typing import Any, Protocol
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +50,7 @@ class MetricsProvider:
         try:
             from opentelemetry import metrics  # noqa: F401
             from opentelemetry.sdk.metrics import MeterProvider  # noqa: F401
+
             self._otel_available = True
         except ImportError:
             self._meter = _NoopMeter()
@@ -59,7 +60,7 @@ class MetricsProvider:
         self,
         service_name: str = "agent-memory",
         endpoint: str | None = None,
-    ) -> "MetricsProvider":
+    ) -> MetricsProvider:
         """Configure the underlying MeterProvider.
 
         Args:
@@ -124,7 +125,7 @@ class MetricsProvider:
 
         try:
             counter = self._meter.create_counter(
-                name=f"agent_memory.count",
+                name="agent_memory.count",
                 unit="1",
                 description="Number of memory records",
             )

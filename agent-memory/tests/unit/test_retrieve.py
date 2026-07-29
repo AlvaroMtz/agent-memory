@@ -3,26 +3,23 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
 from agent_memory.application.retrieve import (
+    _empty_result,
     apply_consent_filter,
     apply_token_budget,
     retrieve,
     score_fusion,
-    _empty_result,
 )
-from agent_memory.constants import MemoryStatus
 from agent_memory.context import TenantContext
 from agent_memory.domain.consent import ConsentRecord
 from agent_memory.domain.memory import MemoryRecord, MemoryVersion
-from agent_memory.domain.retrieval import RetrievedMemory, RetrievalResult
-from agent_memory.ports.consent import ConsentProvider
+from agent_memory.domain.retrieval import RetrievalResult, RetrievedMemory
 from agent_memory.providers.deterministic_embeddings import DeterministicEmbeddingProvider
 from agent_memory.providers.in_memory_backend import InMemoryBackend
-
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -98,7 +95,7 @@ def embedder() -> DeterministicEmbeddingProvider:
 
 @pytest.fixture
 def sample_memories() -> list[RetrievedMemory]:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return [
         RetrievedMemory(
             id=uuid.uuid4(),
@@ -199,19 +196,26 @@ class TestRetrieve:
         await _save_test_memory(backend, memory_type="preference", value="x")
         await _save_test_memory(backend, memory_type="semantic", value="y")
         result = await retrieve(
-            tenant_id="t1", subject_id="sub-1", backend=backend,
+            tenant_id="t1",
+            subject_id="sub-1",
+            backend=backend,
             filters={"memory_types": ["semantic"]},
         )
         for r in result.results:
             assert r.memory_type == "semantic"
 
-    async def test_retrieve_with_embedding(self, backend: InMemoryBackend, embedder: DeterministicEmbeddingProvider):
+    async def test_retrieve_with_embedding(
+        self, backend: InMemoryBackend, embedder: DeterministicEmbeddingProvider
+    ):
         """Vector search path does not error."""
         await backend.initialize()
         await _save_test_memory(backend, value="hello")
         result = await retrieve(
-            tenant_id="t1", subject_id="sub-1", query="hello",
-            backend=backend, embedder=embedder,
+            tenant_id="t1",
+            subject_id="sub-1",
+            query="hello",
+            backend=backend,
+            embedder=embedder,
         )
         assert isinstance(result, RetrievalResult)
 
@@ -244,11 +248,17 @@ class TestScoreFusion:
     def test_fusion_missing_breakdown(self):
         """Missing breakdown filled with zeros."""
         r = RetrievedMemory(
-            id=uuid.uuid4(), version=1, memory_type="preference",
-            predicate="likes", value="v", score=0.5,
-            score_breakdown={}, confidence=0.9,
-            source_type="user", sensitivity="public",
-            created_at=datetime.now(timezone.utc),
+            id=uuid.uuid4(),
+            version=1,
+            memory_type="preference",
+            predicate="likes",
+            value="v",
+            score=0.5,
+            score_breakdown={},
+            confidence=0.9,
+            source_type="user",
+            sensitivity="public",
+            created_at=datetime.now(UTC),
         )
         fused = score_fusion([r])
         assert fused[0].score == 0.0
@@ -280,15 +290,22 @@ class TestApplyTokenBudget:
 
     def test_budget_truncates(self):
         """Small budget truncates results (50 tokens per result)."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         results = [
             RetrievedMemory(
-                id=uuid.uuid4(), version=1, memory_type="preference",
-                predicate="a", value="a", score=1.0,
-                score_breakdown={}, confidence=0.9,
-                source_type="user", sensitivity="public",
+                id=uuid.uuid4(),
+                version=1,
+                memory_type="preference",
+                predicate="a",
+                value="a",
+                score=1.0,
+                score_breakdown={},
+                confidence=0.9,
+                source_type="user",
+                sensitivity="public",
                 created_at=now,
-            ) for _ in range(5)
+            )
+            for _ in range(5)
         ]
         truncated = apply_token_budget(results, max_tokens=100)
         assert len(truncated) == 2

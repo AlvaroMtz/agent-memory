@@ -8,9 +8,9 @@ Uses real domain models with a mocked AsyncSession to validate:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,7 +30,6 @@ from agent_memory.postgres.models import (
     AuditLogModel,
     ConsentModel,
     MemoryModel,
-    MemoryVersionModel,
 )
 from agent_memory.postgres.repositories import (
     AuditRepository,
@@ -38,7 +37,7 @@ from agent_memory.postgres.repositories import (
     MemoryRepository,
 )
 
-_NOW = datetime.now(timezone.utc)
+_NOW = datetime.now(UTC)
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────────
@@ -181,7 +180,10 @@ class TestMemoryRepository:
     """Test MemoryRepository CRUD operations with mocked session."""
 
     async def test_save_memory(
-        self, mock_session, sample_memory, sample_version,
+        self,
+        mock_session,
+        sample_memory,
+        sample_version,
     ):
         """Save a new memory with its first version."""
         repo = MemoryRepository(mock_session)
@@ -193,7 +195,9 @@ class TestMemoryRepository:
         assert mock_session.flush.await_count == 1
 
     async def test_get_memory_found(
-        self, mock_session, sample_memory,
+        self,
+        mock_session,
+        sample_memory,
     ):
         """Get an existing memory by ID."""
         orm = make_memory_orm(id=sample_memory.id)
@@ -210,7 +214,8 @@ class TestMemoryRepository:
         assert result.memory_type == "preference"
 
     async def test_get_memory_not_found(
-        self, mock_session,
+        self,
+        mock_session,
     ):
         """Get returns None when memory doesn't exist."""
         mock_result = MagicMock()
@@ -222,7 +227,9 @@ class TestMemoryRepository:
         assert result is None
 
     async def test_list_memories(
-        self, mock_session, sample_memory,
+        self,
+        mock_session,
+        sample_memory,
     ):
         """List memories with filters."""
         orm = make_memory_orm(id=sample_memory.id, status="active", current_version=1)
@@ -242,7 +249,8 @@ class TestMemoryRepository:
         assert results[0].subject_id == "user-42"
 
     async def test_list_memories_empty(
-        self, mock_session,
+        self,
+        mock_session,
     ):
         """List returns empty list when no matching memories."""
         mock_result = MagicMock()
@@ -258,7 +266,10 @@ class TestMemoryRepository:
         assert len(results) == 0
 
     async def test_add_version(
-        self, mock_session, sample_memory, sample_version,
+        self,
+        mock_session,
+        sample_memory,
+        sample_version,
     ):
         """Add a new version to an existing memory."""
         orm = make_memory_orm(id=sample_memory.id, status="active", current_version=1)
@@ -276,14 +287,17 @@ class TestMemoryRepository:
         )
 
         result = await repo.add_version(
-            sample_memory.id, v2, tenant_id="tenant-alpha",
+            sample_memory.id,
+            v2,
+            tenant_id="tenant-alpha",
         )
 
         assert result.version == 2
         assert result.memory_id == sample_memory.id
 
     async def test_update_status(
-        self, mock_session,
+        self,
+        mock_session,
     ):
         """Update memory status."""
         mock_result = MagicMock()
@@ -298,7 +312,8 @@ class TestMemoryRepository:
         assert mock_session.flush.await_count == 1
 
     async def test_update_status_not_found(
-        self, mock_session,
+        self,
+        mock_session,
     ):
         """Update on non-existent memory raises MemoryNotFoundError."""
         mock_result = MagicMock()
@@ -317,7 +332,9 @@ class TestConsentRepository:
     """Test ConsentRepository CRUD operations."""
 
     async def test_save_consent(
-        self, mock_session, sample_consent,
+        self,
+        mock_session,
+        sample_consent,
     ):
         """Save a new consent record."""
         repo = ConsentRepository(mock_session)
@@ -329,7 +346,9 @@ class TestConsentRepository:
         assert mock_session.flush.await_count == 1
 
     async def test_get_active_consent(
-        self, mock_session, sample_consent,
+        self,
+        mock_session,
+        sample_consent,
     ):
         """Get the active consent for a subject and purpose."""
         orm = make_consent_orm(id=sample_consent.id)
@@ -350,7 +369,8 @@ class TestConsentRepository:
         assert result.allow_read is True
 
     async def test_get_active_consent_not_found(
-        self, mock_session,
+        self,
+        mock_session,
     ):
         """Returns None when no active consent exists."""
         mock_result = MagicMock()
@@ -366,7 +386,9 @@ class TestConsentRepository:
         assert result is None
 
     async def test_revoke_consent(
-        self, mock_session, sample_consent,
+        self,
+        mock_session,
+        sample_consent,
     ):
         """Revoke a consent record."""
         orm = make_consent_orm(id=sample_consent.id, revoked_at=None)
@@ -376,7 +398,8 @@ class TestConsentRepository:
 
         repo = ConsentRepository(mock_session)
         result = await repo.revoke(
-            sample_consent.id, tenant_id="tenant-alpha",
+            sample_consent.id,
+            tenant_id="tenant-alpha",
         )
 
         assert result.is_revoked()
@@ -384,7 +407,8 @@ class TestConsentRepository:
         assert mock_session.flush.await_count == 1
 
     async def test_revoke_consent_not_found(
-        self, mock_session,
+        self,
+        mock_session,
     ):
         """Revoking non-existent consent raises ConsentNotFoundError."""
         mock_result = MagicMock()
@@ -403,7 +427,9 @@ class TestAuditRepository:
     """Test AuditRepository append-only operations."""
 
     async def test_append_event(
-        self, mock_session, sample_audit_event,
+        self,
+        mock_session,
+        sample_audit_event,
     ):
         """Append an audit event."""
         repo = AuditRepository(mock_session)
@@ -416,7 +442,9 @@ class TestAuditRepository:
         assert mock_session.flush.await_count == 1
 
     async def test_query_audit(
-        self, mock_session, sample_audit_event,
+        self,
+        mock_session,
+        sample_audit_event,
     ):
         """Query audit events."""
         orm = make_audit_orm(
@@ -473,6 +501,7 @@ class TestPostgresBackend:
 
     async def test_save_and_get_memory(self, backend, tenant_a, sample_memory, sample_version):
         """End-to-end: save then get a memory through the backend."""
+
         async def callback(session):
             saved = await backend.save_memory(sample_memory, sample_version, context=tenant_a)
             assert saved.id == sample_memory.id
@@ -491,6 +520,7 @@ class TestPostgresBackend:
 
     async def test_consent_lifecycle(self, backend, tenant_a, sample_consent):
         """Full consent lifecycle: save -> get active -> revoke."""
+
         async def callback(session):
             saved = await backend.save_consent(sample_consent, context=tenant_a)
             assert saved.id == sample_consent.id
@@ -512,6 +542,7 @@ class TestPostgresBackend:
 
     async def test_audit_logging(self, backend, sample_audit_event):
         """Audit event append and query."""
+
         async def callback(session):
             await backend.audit(sample_audit_event)
 
@@ -530,6 +561,7 @@ class TestPostgresBackend:
 
     async def test_health_check(self, backend):
         """Health check returns expected structure."""
+
         async def callback(session):
             mock_result = MagicMock()
             mock_result.scalar_one_or_none.return_value = 1
@@ -543,6 +575,7 @@ class TestPostgresBackend:
 
     async def test_update_memory_status(self, backend, tenant_a):
         """Update status through backend."""
+
         async def callback(session):
             mock_result = MagicMock()
             mock_result.rowcount = 1
@@ -556,7 +589,8 @@ class TestPostgresBackend:
         await self._run_with_mock_session(backend, callback)
 
     async def test_tenant_isolation_in_repository(
-        self, mock_session,
+        self,
+        mock_session,
     ):
         """Repository-level tenant filtering works correctly."""
         mem_a = make_memory_orm(tenant_id="tenant-alpha", status="active", current_version=1)

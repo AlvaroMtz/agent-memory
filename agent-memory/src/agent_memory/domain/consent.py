@@ -5,12 +5,10 @@ Consent is not a boolean — it is a versioned, granular permission grant.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
-
-from agent_memory.constants import Sensitivity
 
 
 class ConsentGrant(BaseModel):
@@ -48,14 +46,14 @@ class ConsentRecord(BaseModel):
     revoked_at: datetime | None = None
     expires_at: datetime | None = None
 
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     def is_active(self) -> bool:
         """Check if this consent is currently active."""
         if self.revoked_at is not None:
             return False
-        if self.expires_at and self.expires_at < datetime.now(timezone.utc):
+        if self.expires_at and self.expires_at < datetime.now(UTC):
             return False
         return True
 
@@ -88,5 +86,5 @@ class ConsentRecord(BaseModel):
 
     def revoke(self) -> None:
         """Revoke this consent record."""
-        self.revoked_at = datetime.now(timezone.utc)
-        self.updated_at = datetime.now(timezone.utc)
+        self.revoked_at = datetime.now(UTC)
+        self.updated_at = datetime.now(UTC)

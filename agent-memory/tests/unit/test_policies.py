@@ -1,8 +1,9 @@
 """Unit tests for policy validation functions."""
 
+from datetime import UTC
+
 import pytest
 
-from agent_memory.constants import EXTRACTABLE_ROLES, NON_EXTRACTABLE_ROLES
 from agent_memory.domain.candidate import MemoryCandidate
 from agent_memory.domain.consent import ConsentRecord
 from agent_memory.domain.memory import MemoryRecord
@@ -24,7 +25,6 @@ from agent_memory.exceptions import (
     LowConfidenceError,
     MissingTenantError,
     NotExplicitlyStatedError,
-    SourceMessageNotFoundError,
 )
 
 
@@ -186,41 +186,59 @@ class TestValidateConsentForWrite:
 
     def test_valid_consent(self):
         consent = ConsentRecord(
-            tenant_id="t", subject_id="s", actor_id="a",
-            purpose="p", allow_write=True, allow_read=True,
+            tenant_id="t",
+            subject_id="s",
+            actor_id="a",
+            purpose="p",
+            allow_write=True,
+            allow_read=True,
             allowed_memory_types={"preference"},
             allowed_sensitivity={"public"},
         )
         validate_consent_for_write(consent, "preference", "public")  # should not raise
 
     def test_revoked_consent(self):
-        from datetime import datetime, timezone
+        from datetime import datetime
+
         consent = ConsentRecord(
-            tenant_id="t", subject_id="s", actor_id="a",
-            purpose="p", allow_write=True, allow_read=True,
+            tenant_id="t",
+            subject_id="s",
+            actor_id="a",
+            purpose="p",
+            allow_write=True,
+            allow_read=True,
             allowed_memory_types={"preference"},
             allowed_sensitivity={"public"},
-            revoked_at=datetime.now(timezone.utc),
+            revoked_at=datetime.now(UTC),
         )
         with pytest.raises(ConsentRevokedError):
             validate_consent_for_write(consent, "preference", "public")
 
     def test_expired_consent(self):
-        from datetime import datetime, timezone
+        from datetime import datetime
+
         consent = ConsentRecord(
-            tenant_id="t", subject_id="s", actor_id="a",
-            purpose="p", allow_write=True, allow_read=True,
+            tenant_id="t",
+            subject_id="s",
+            actor_id="a",
+            purpose="p",
+            allow_write=True,
+            allow_read=True,
             allowed_memory_types={"preference"},
             allowed_sensitivity={"public"},
-            expires_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
+            expires_at=datetime(2020, 1, 1, tzinfo=UTC),
         )
         with pytest.raises(ConsentExpiredError):
             validate_consent_for_write(consent, "preference", "public")
 
     def test_type_not_allowed(self):
         consent = ConsentRecord(
-            tenant_id="t", subject_id="s", actor_id="a",
-            purpose="p", allow_write=True, allow_read=True,
+            tenant_id="t",
+            subject_id="s",
+            actor_id="a",
+            purpose="p",
+            allow_write=True,
+            allow_read=True,
             allowed_memory_types={"preference"},
             allowed_sensitivity={"public"},
         )
@@ -256,39 +274,60 @@ class TestClassifyContradiction:
 
     def test_duplicate(self):
         existing = MemoryRecord(
-            tenant_id="t", subject_id="s", purpose="p",
-            memory_type="preference", subject_key="code",
-            predicate="code_language", status="active",
+            tenant_id="t",
+            subject_id="s",
+            purpose="p",
+            memory_type="preference",
+            subject_key="code",
+            predicate="code_language",
+            status="active",
         )
         candidate = MemoryCandidate(
-            memory_type="preference", subject_key="code",
-            predicate="code_language", value="Python",
-            source_message_id="m1", evidence_text="Python",
+            memory_type="preference",
+            subject_key="code",
+            predicate="code_language",
+            value="Python",
+            source_message_id="m1",
+            evidence_text="Python",
         )
         assert classify_contradiction(existing, candidate) == "duplicate"
 
     def test_preference_supersedes(self):
         existing = MemoryRecord(
-            tenant_id="t", subject_id="s", purpose="p",
-            memory_type="preference", subject_key="code",
-            predicate="code_language", status="active",
+            tenant_id="t",
+            subject_id="s",
+            purpose="p",
+            memory_type="preference",
+            subject_key="code",
+            predicate="code_language",
+            status="active",
         )
         candidate = MemoryCandidate(
-            memory_type="preference", subject_key="code",
-            predicate="response_language", value="Spanish",
-            source_message_id="m1", evidence_text="Spanish",
+            memory_type="preference",
+            subject_key="code",
+            predicate="response_language",
+            value="Spanish",
+            source_message_id="m1",
+            evidence_text="Spanish",
         )
         assert classify_contradiction(existing, candidate) == "supports"
 
     def test_unrelated(self):
         existing = MemoryRecord(
-            tenant_id="t", subject_id="s", purpose="p",
-            memory_type="preference", subject_key="code",
-            predicate="code_language", status="active",
+            tenant_id="t",
+            subject_id="s",
+            purpose="p",
+            memory_type="preference",
+            subject_key="code",
+            predicate="code_language",
+            status="active",
         )
         candidate = MemoryCandidate(
-            memory_type="semantic", subject_key="job",
-            predicate="role", value="Engineer",
-            source_message_id="m1", evidence_text="Engineer",
+            memory_type="semantic",
+            subject_key="job",
+            predicate="role",
+            value="Engineer",
+            source_message_id="m1",
+            evidence_text="Engineer",
         )
         assert classify_contradiction(existing, candidate) == "unrelated"

@@ -8,16 +8,9 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from agent_memory.context import MemoryContext, TenantContext
+from agent_memory.context import TenantContext
 from agent_memory.domain.audit import AuditEvent
 from agent_memory.domain.consent import ConsentGrant, ConsentRecord
-from agent_memory.exceptions import (
-    ConsentDeniedError,
-    ConsentExpiredError,
-    ConsentNotFoundError,
-    ConsentRevokedError,
-    MissingTenantError,
-)
 from agent_memory.ports.backend import MemoryBackend
 from agent_memory.ports.telemetry import TelemetryProvider
 

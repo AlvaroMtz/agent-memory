@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
+from agent_memory.constants import ContradictionClass
 from agent_memory.domain.candidate import MemoryCandidate
 from agent_memory.domain.memory import MemoryRecord
-from agent_memory.constants import ContradictionClass
 
 
 @runtime_checkable
@@ -41,5 +41,4 @@ class ConflictResolver(Protocol):
 class ConflictResolverFactory(Protocol):
     """Factory for creating ConflictResolver instances."""
 
-    def create(self, **kwargs) -> ConflictResolver:
-        ...
+    def create(self, **kwargs) -> ConflictResolver: ...

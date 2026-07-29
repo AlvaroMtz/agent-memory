@@ -2,19 +2,14 @@
 
 from __future__ import annotations
 
-import math
-from decimal import Decimal
-
-import pytest
-
 from agent_memory.evaluation.metrics import (
+    audit_integrity,
     consent_coverage,
     consent_grant_rate,
-    forget_completeness,
-    audit_integrity,
     extraction_f1,
     extraction_precision,
     extraction_recall,
+    forget_completeness,
     hit_rate,
     mean_reciprocal_rank,
     ndcg_at_k,

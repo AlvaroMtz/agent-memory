@@ -63,5 +63,4 @@ class TelemetryProvider(Protocol):
 class TelemetryProviderFactory(Protocol):
     """Factory for creating TelemetryProvider instances."""
 
-    def create(self, **kwargs) -> TelemetryProvider:
-        ...
+    def create(self, **kwargs) -> TelemetryProvider: ...

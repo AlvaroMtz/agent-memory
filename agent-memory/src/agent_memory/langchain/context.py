@@ -9,7 +9,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from agent_memory.constants import NON_EXTRACTABLE_ROLES
 from agent_memory.context import MemoryContext
 
 logger = logging.getLogger(__name__)
@@ -70,9 +69,7 @@ class ContextAdapter:
 
         # Extract purpose from various sources
         purpose = (
-            kwargs.get("purpose")
-            or metadata.get("purpose")
-            or self._first_match(tags, "purpose:")
+            kwargs.get("purpose") or metadata.get("purpose") or self._first_match(tags, "purpose:")
         )
 
         if not tenant_id:
@@ -168,5 +165,5 @@ class ContextAdapter:
         """
         for tag in tags:
             if tag.startswith(prefix):
-                return tag[len(prefix):]
+                return tag[len(prefix) :]
         return None

@@ -2,20 +2,14 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
-from uuid import UUID
-
-from fastapi import Request
 
 from agent_memory.application.remember import extract_memories
 from agent_memory.application.retrieve import retrieve
 from agent_memory.domain.candidate import MemoryCandidate
 from agent_memory.domain.consent import ConsentRecord
-
 from agent_memory.domain.memory import MemoryRecord
 from agent_memory.ports.backend import MemoryBackend
-from agent_memory.ports.consent import ConsentProvider
 from agent_memory.ports.embedder import EmbeddingProvider
 from agent_memory.ports.extractor import MemoryExtractor
 
@@ -118,7 +112,9 @@ class LabServices:
     async def get_stats(self) -> dict[str, Any]:
         """Get memory lab statistics."""
         try:
-            memories = await self.backend.list_memories(tenant_id="default", subject_id="default", limit=1000)
+            memories = await self.backend.list_memories(
+                tenant_id="default", subject_id="default", limit=1000
+            )
             return {
                 "total_memories": len(memories),
                 "by_type": self._count_by_type(memories),
@@ -144,10 +140,12 @@ class LabServices:
         try:
             from agent_memory.domain.audit import AuditQuery
 
-            audit_events = await self.backend.query_audit(AuditQuery(tenant_id="default", limit=limit))
+            audit_events = await self.backend.query_audit(
+                AuditQuery(tenant_id="default", limit=limit)
+            )
             return [
                 {
-                    "id": str(event.id) if hasattr(event, 'id') else "unknown",
+                    "id": str(event.id) if hasattr(event, "id") else "unknown",
                     "action": event.action,
                     "timestamp": event.created_at.isoformat(),
                     "details": event.metadata,
@@ -184,7 +182,9 @@ class LabServices:
             )
             from agent_memory.context import TenantContext
 
-            await self.backend.save_consent(consent, context=TenantContext(tenant_id="default", actor_id="lab"))
+            await self.backend.save_consent(
+                consent, context=TenantContext(tenant_id="default", actor_id="lab")
+            )
             return True
         except Exception:
             return False
@@ -199,7 +199,9 @@ class LabServices:
 
         records = await self.backend.list_consent(tenant_id="default", subject_id=subject_id)
         for record in records:
-            await self.backend.revoke_consent(record.id, context=TenantContext(tenant_id="default", actor_id="lab"))
+            await self.backend.revoke_consent(
+                record.id, context=TenantContext(tenant_id="default", actor_id="lab")
+            )
         return bool(records)
 
     async def add_memory(

@@ -20,8 +20,16 @@ class TestMemoryClient:
         backend.close = AsyncMock()
         backend.list_memories = AsyncMock(return_value=[])
         from agent_memory.domain.memory import MemoryRecord
+
         backend.save_memory = AsyncMock(
-            return_value=MemoryRecord(tenant_id="t", subject_id="s", purpose="p", memory_type="preference", subject_key="k", predicate="p")
+            return_value=MemoryRecord(
+                tenant_id="t",
+                subject_id="s",
+                purpose="p",
+                memory_type="preference",
+                subject_key="k",
+                predicate="p",
+            )
         )
         backend.audit = AsyncMock()
         return backend
@@ -67,7 +75,9 @@ class TestMemoryClient:
             assert client._backend is mock_backend
 
     @pytest.mark.asyncio
-    async def test_remember_no_consent_returns_empty(self, client: MemoryClient, context: MemoryContext):
+    async def test_remember_no_consent_returns_empty(
+        self, client: MemoryClient, context: MemoryContext
+    ):
         """remember returns empty result when no consent is granted."""
         # Mock: no active consent
         client._consent.get_active_consent = AsyncMock(return_value=None)
@@ -81,8 +91,9 @@ class TestMemoryClient:
     @pytest.mark.asyncio
     async def test_remember_with_consent(self, client: MemoryClient, context: MemoryContext):
         """remember persists candidates when consent is active."""
-        from agent_memory.domain.consent import ConsentRecord
         from uuid import uuid4
+
+        from agent_memory.domain.consent import ConsentRecord
 
         # Mock active consent
         mock_record = ConsentRecord(
@@ -100,6 +111,7 @@ class TestMemoryClient:
 
         # Mock extractor to return a candidate
         from agent_memory.domain.candidate import MemoryCandidate
+
         client._extractor = MagicMock()
         client._extractor.extract = AsyncMock(
             return_value=[
@@ -136,6 +148,7 @@ class TestMemoryClient:
         client._consent = None
 
         from agent_memory.domain.candidate import MemoryCandidate
+
         client._extractor = MagicMock()
         client._extractor.extract = AsyncMock(
             return_value=[
@@ -172,15 +185,18 @@ class TestMemoryClient:
             token_count=0,
             token_budget=1200,
         )
-        with patch("agent_memory.client.retrieve", new_callable=AsyncMock, return_value=mock_result):
+        with patch(
+            "agent_memory.client.retrieve", new_callable=AsyncMock, return_value=mock_result
+        ):
             result = await client.retrieve("test", context)
             assert result.query == "test"
 
     @pytest.mark.asyncio
     async def test_grant_consent(self, client: MemoryClient, context: MemoryContext):
         """grant_consent uses context for tenant_id and purpose."""
-        from agent_memory.domain.consent import ConsentRecord
         from uuid import uuid4
+
+        from agent_memory.domain.consent import ConsentRecord
 
         mock_record = ConsentRecord(
             id=uuid4(),
@@ -209,8 +225,9 @@ class TestMemoryClient:
     @pytest.mark.asyncio
     async def test_revoke_consent(self, client: MemoryClient, context: MemoryContext):
         """revoke_consent uses context tenant_id."""
-        from agent_memory.domain.consent import ConsentRecord
         from uuid import uuid4
+
+        from agent_memory.domain.consent import ConsentRecord
 
         mock_record = ConsentRecord(
             id=uuid4(),
@@ -235,8 +252,9 @@ class TestMemoryClient:
     @pytest.mark.asyncio
     async def test_check_consent(self, client: MemoryClient, context: MemoryContext):
         """check_consent uses context for tenant_id and purpose."""
-        from agent_memory.domain.consent import ConsentRecord
         from uuid import uuid4
+
+        from agent_memory.domain.consent import ConsentRecord
 
         mock_record = ConsentRecord(
             id=uuid4(),
@@ -294,7 +312,9 @@ class TestMemoryClient:
         assert call_kwargs["status"] == "deleted"
 
     @pytest.mark.asyncio
-    async def test_remember_no_extractor_returns_empty(self, client: MemoryClient, context: MemoryContext):
+    async def test_remember_no_extractor_returns_empty(
+        self, client: MemoryClient, context: MemoryContext
+    ):
         """remember returns empty when no extractor configured."""
         from agent_memory.domain.consent import ConsentRecord
 

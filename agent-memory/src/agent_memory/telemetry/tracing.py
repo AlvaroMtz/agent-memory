@@ -17,11 +17,9 @@ logger = logging.getLogger(__name__)
 class _Span(Protocol):
     """Minimal span interface."""
 
-    def set_attribute(self, key: str, value: str | int | float | bool) -> None:
-        ...
+    def set_attribute(self, key: str, value: str | int | float | bool) -> None: ...
 
-    def end(self) -> None:
-        ...
+    def end(self) -> None: ...
 
 
 class _NoopSpan:
@@ -68,7 +66,7 @@ class TracingProvider:
         self,
         service_name: str = "agent-memory",
         endpoint: str | None = None,
-    ) -> "TracingProvider":
+    ) -> TracingProvider:
         """Configure the underlying TracerProvider.
 
         Args:

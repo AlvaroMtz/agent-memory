@@ -6,7 +6,6 @@ Returns configured fixture responses based on scenario identifiers.
 from __future__ import annotations
 
 from agent_memory.domain.candidate import MemoryCandidate
-from agent_memory.ports.extractor import MemoryExtractor
 
 
 class FakeExtractor:

@@ -8,20 +8,19 @@ Create Date: 2025-01-01 00:00:00.000000
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Union
 
 import sqlalchemy as sa
 from alembic import op
-from sqlalchemy.dialects import postgresql
 from pgvector.sqlalchemy import Vector
+from sqlalchemy.dialects import postgresql
 
 from agent_memory.postgres.rls import apply_rls_policies_sql, enable_rqls_sql
 
 # revision identifiers
 revision: str = "0001_initial"
-down_revision: Union[str, None] = None
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = None
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
@@ -148,7 +147,9 @@ def upgrade() -> None:
 
     # ── Additional indexes ────────────────────────────────────────────────────────
     op.create_index("ix_memories_tenant_subject", "memories", ["tenant_id", "subject_id"])
-    op.create_index("ix_consent_tenant_subject_purpose", "consent", ["tenant_id", "subject_id", "purpose"])
+    op.create_index(
+        "ix_consent_tenant_subject_purpose", "consent", ["tenant_id", "subject_id", "purpose"]
+    )
     op.create_index("ix_audit_log_tenant_action", "audit_log", ["tenant_id", "action"])
 
     op.execute(enable_rqls_sql())

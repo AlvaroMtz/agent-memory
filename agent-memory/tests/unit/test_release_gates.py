@@ -29,7 +29,9 @@ def test_global_coverage_gate_fails_without_data(monkeypatch: pytest.MonkeyPatch
         reports._run_global_coverage_metric()
 
 
-def test_release_gates_config_is_project_root_relative(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+def test_release_gates_config_is_project_root_relative(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
     """release-gates.yaml is found even when current working directory changes."""
 
     monkeypatch.chdir(tmp_path)

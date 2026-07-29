@@ -1,20 +1,16 @@
 """Unit tests for domain models."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 import pytest
 
-from agent_memory.constants import (
-    EXTRACTABLE_ROLES,
-    NON_EXTRACTABLE_ROLES,
-)
 from agent_memory.domain.audit import AuditEvent
 from agent_memory.domain.candidate import MemoryCandidate
 from agent_memory.domain.consent import ConsentGrant, ConsentRecord
-from agent_memory.domain.evidence import Evidence, EvidenceValidationResult
+from agent_memory.domain.evidence import Evidence
 from agent_memory.domain.memory import MemoryRecord, MemoryVersion
-from agent_memory.domain.retrieval import RetrievedMemory, RetrievalResult, ScoreBreakdown
+from agent_memory.domain.retrieval import RetrievalResult, RetrievedMemory, ScoreBreakdown
 
 
 class TestMemoryRecord:
@@ -35,8 +31,12 @@ class TestMemoryRecord:
 
     def test_is_active_only_when_active(self):
         record = MemoryRecord(
-            tenant_id="t", subject_id="s", purpose="p",
-            memory_type="preference", subject_key="k", predicate="p",
+            tenant_id="t",
+            subject_id="s",
+            purpose="p",
+            memory_type="preference",
+            subject_key="k",
+            predicate="p",
             status="active",
         )
         assert record.is_active()
@@ -44,33 +44,49 @@ class TestMemoryRecord:
     def test_is_active_false_when_not_active(self):
         for status in ["candidate", "superseded", "revoked", "expired", "rejected", "deleted"]:
             record = MemoryRecord(
-                tenant_id="t", subject_id="s", purpose="p",
-                memory_type="preference", subject_key="k", predicate="p",
+                tenant_id="t",
+                subject_id="s",
+                purpose="p",
+                memory_type="preference",
+                subject_key="k",
+                predicate="p",
                 status=status,  # type: ignore
             )
             assert not record.is_active(), f"should not be active for status {status}"
 
     def test_is_expired_by_status(self):
         record = MemoryRecord(
-            tenant_id="t", subject_id="s", purpose="p",
-            memory_type="preference", subject_key="k", predicate="p",
+            tenant_id="t",
+            subject_id="s",
+            purpose="p",
+            memory_type="preference",
+            subject_key="k",
+            predicate="p",
             status="expired",
         )
         assert record.is_expired()
 
     def test_is_expired_by_date(self):
         record = MemoryRecord(
-            tenant_id="t", subject_id="s", purpose="p",
-            memory_type="preference", subject_key="k", predicate="p",
+            tenant_id="t",
+            subject_id="s",
+            purpose="p",
+            memory_type="preference",
+            subject_key="k",
+            predicate="p",
             status="active",
-            valid_until=datetime(2020, 1, 1, tzinfo=timezone.utc),
+            valid_until=datetime(2020, 1, 1, tzinfo=UTC),
         )
         assert record.is_expired()
 
     def test_supersede_changes_status(self):
         record = MemoryRecord(
-            tenant_id="t", subject_id="s", purpose="p",
-            memory_type="preference", subject_key="k", predicate="p",
+            tenant_id="t",
+            subject_id="s",
+            purpose="p",
+            memory_type="preference",
+            subject_key="k",
+            predicate="p",
             status="active",
         )
         record.supersede()
@@ -78,8 +94,12 @@ class TestMemoryRecord:
 
     def test_revoke_changes_status(self):
         record = MemoryRecord(
-            tenant_id="t", subject_id="s", purpose="p",
-            memory_type="preference", subject_key="k", predicate="p",
+            tenant_id="t",
+            subject_id="s",
+            purpose="p",
+            memory_type="preference",
+            subject_key="k",
+            predicate="p",
             status="active",
         )
         record.revoke()
@@ -163,8 +183,12 @@ class TestConsentRecord:
 
     def test_is_active_when_not_revoked(self):
         record = ConsentRecord(
-            tenant_id="t", subject_id="s", actor_id="a",
-            purpose="p", allow_write=True, allow_read=True,
+            tenant_id="t",
+            subject_id="s",
+            actor_id="a",
+            purpose="p",
+            allow_write=True,
+            allow_read=True,
             allowed_memory_types={"preference", "semantic"},
             allowed_sensitivity={"public", "internal", "personal"},
         )
@@ -172,18 +196,26 @@ class TestConsentRecord:
 
     def test_is_not_active_when_revoked(self):
         record = ConsentRecord(
-            tenant_id="t", subject_id="s", actor_id="a",
-            purpose="p", allow_write=True, allow_read=True,
+            tenant_id="t",
+            subject_id="s",
+            actor_id="a",
+            purpose="p",
+            allow_write=True,
+            allow_read=True,
             allowed_memory_types={"preference"},
             allowed_sensitivity={"public"},
-            revoked_at=datetime.now(timezone.utc),
+            revoked_at=datetime.now(UTC),
         )
         assert not record.is_active()
 
     def test_allows_write_checks_type_and_sensitivity(self):
         record = ConsentRecord(
-            tenant_id="t", subject_id="s", actor_id="a",
-            purpose="p", allow_write=True, allow_read=True,
+            tenant_id="t",
+            subject_id="s",
+            actor_id="a",
+            purpose="p",
+            allow_write=True,
+            allow_read=True,
             allowed_memory_types={"preference"},
             allowed_sensitivity={"public"},
         )
@@ -193,8 +225,12 @@ class TestConsentRecord:
 
     def test_revoke_sets_revoked_at(self):
         record = ConsentRecord(
-            tenant_id="t", subject_id="s", actor_id="a",
-            purpose="p", allow_write=True, allow_read=True,
+            tenant_id="t",
+            subject_id="s",
+            actor_id="a",
+            purpose="p",
+            allow_write=True,
+            allow_read=True,
             allowed_memory_types={"preference"},
             allowed_sensitivity={"public"},
         )
@@ -239,7 +275,7 @@ class TestRetrievalModels:
             confidence=0.95,
             source_type="user_explicit",
             sensitivity="public",
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
         )
         assert memory.score == 0.95
 

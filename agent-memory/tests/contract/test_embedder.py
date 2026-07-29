@@ -2,6 +2,7 @@
 
 Reusable test suite that any embedding provider must pass.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -61,6 +62,7 @@ class TestDeterministicEmbedderContract:
     @pytest.fixture
     def embedder(self):
         from agent_memory.providers.deterministic_embeddings import DeterministicEmbeddingProvider
+
         return DeterministicEmbeddingProvider(dimensions=4)
 
     @pytest.mark.asyncio

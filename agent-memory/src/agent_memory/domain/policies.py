@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from agent_memory.constants import EXTRACTABLE_ROLES, NON_EXTRACTABLE_ROLES
 from agent_memory.domain.candidate import MemoryCandidate
-from agent_memory.domain.consent import ConsentGrant, ConsentRecord
-from agent_memory.domain.evidence import Evidence, EvidenceValidationResult
+from agent_memory.domain.consent import ConsentRecord
+from agent_memory.domain.evidence import EvidenceValidationResult
 from agent_memory.domain.memory import MemoryRecord
 from agent_memory.exceptions import (
     ConsentDeniedError,
@@ -21,7 +21,6 @@ from agent_memory.exceptions import (
     MissingTenantError,
     NotExplicitlyStatedError,
     SensitiveInferenceError,
-    SourceMessageNotFoundError,
 )
 
 
@@ -36,9 +35,7 @@ def validate_extraction_role(role: str) -> None:
             f"Allowed roles: {EXTRACTABLE_ROLES}"
         )
     if role not in EXTRACTABLE_ROLES:
-        raise InvalidSourceRoleError(
-            f"Unknown role '{role}'. Allowed roles: {EXTRACTABLE_ROLES}"
-        )
+        raise InvalidSourceRoleError(f"Unknown role '{role}'. Allowed roles: {EXTRACTABLE_ROLES}")
 
 
 def validate_evidence(candidate: MemoryCandidate, messages: list[dict]) -> EvidenceValidationResult:

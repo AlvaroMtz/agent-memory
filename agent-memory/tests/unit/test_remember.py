@@ -11,7 +11,6 @@ from agent_memory.application.remember import (
 )
 from agent_memory.constants import EXTRACTABLE_ROLES
 from agent_memory.domain.candidate import MemoryCandidate
-from agent_memory.domain.evidence import Evidence, EvidenceValidationResult
 from agent_memory.providers.fake_extractor import FakeExtractor
 
 

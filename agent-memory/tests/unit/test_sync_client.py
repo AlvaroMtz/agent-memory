@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agent_memory.sync_client import SyncMemoryClient
 from agent_memory.context import MemoryContext
+from agent_memory.sync_client import SyncMemoryClient
 
 
 class TestSyncMemoryClient:
@@ -20,8 +20,16 @@ class TestSyncMemoryClient:
         backend.close = AsyncMock()
         backend.list_memories = AsyncMock(return_value=[])
         from agent_memory.domain.memory import MemoryRecord
+
         backend.save_memory = AsyncMock(
-            return_value=MemoryRecord(tenant_id="t", subject_id="s", purpose="p", memory_type="preference", subject_key="k", predicate="p")
+            return_value=MemoryRecord(
+                tenant_id="t",
+                subject_id="s",
+                purpose="p",
+                memory_type="preference",
+                subject_key="k",
+                predicate="p",
+            )
         )
         backend.audit = AsyncMock()
         return backend
@@ -64,7 +72,9 @@ class TestSyncMemoryClient:
         with SyncMemoryClient(mock_backend) as client:
             mock_backend.initialize.assert_called_once()
 
-    def test_remember_no_consent_returns_empty(self, client: SyncMemoryClient, context: MemoryContext):
+    def test_remember_no_consent_returns_empty(
+        self, client: SyncMemoryClient, context: MemoryContext
+    ):
         """remember returns empty result when no consent is granted."""
         client._client._consent.get_active_consent = AsyncMock(return_value=None)
         result = client.remember(
@@ -76,9 +86,10 @@ class TestSyncMemoryClient:
 
     def test_remember_with_consent(self, client: SyncMemoryClient, context: MemoryContext):
         """remember persists candidates when consent is active."""
-        from agent_memory.domain.consent import ConsentRecord
-        from agent_memory.domain.candidate import MemoryCandidate
         from uuid import uuid4
+
+        from agent_memory.domain.candidate import MemoryCandidate
+        from agent_memory.domain.consent import ConsentRecord
 
         mock_record = ConsentRecord(
             id=uuid4(),
@@ -127,14 +138,17 @@ class TestSyncMemoryClient:
             token_count=0,
             token_budget=1200,
         )
-        with patch("agent_memory.client.retrieve", new_callable=AsyncMock, return_value=mock_result):
+        with patch(
+            "agent_memory.client.retrieve", new_callable=AsyncMock, return_value=mock_result
+        ):
             result = client.retrieve("test", context)
             assert result.query == "test"
 
     def test_grant_consent(self, client: SyncMemoryClient, context: MemoryContext):
         """grant_consent uses context for tenant_id and purpose."""
-        from agent_memory.domain.consent import ConsentRecord
         from uuid import uuid4
+
+        from agent_memory.domain.consent import ConsentRecord
 
         mock_record = ConsentRecord(
             id=uuid4(),
@@ -155,8 +169,9 @@ class TestSyncMemoryClient:
 
     def test_revoke_consent(self, client: SyncMemoryClient, context: MemoryContext):
         """revoke_consent uses context tenant_id."""
-        from agent_memory.domain.consent import ConsentRecord
         from uuid import uuid4
+
+        from agent_memory.domain.consent import ConsentRecord
 
         mock_record = ConsentRecord(
             id=uuid4(),
@@ -177,8 +192,9 @@ class TestSyncMemoryClient:
 
     def test_check_consent(self, client: SyncMemoryClient, context: MemoryContext):
         """check_consent uses context for tenant_id and purpose."""
-        from agent_memory.domain.consent import ConsentRecord
         from uuid import uuid4
+
+        from agent_memory.domain.consent import ConsentRecord
 
         mock_record = ConsentRecord(
             id=uuid4(),

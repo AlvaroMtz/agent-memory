@@ -33,6 +33,7 @@ class TestLoadScenario:
 
     def test_load_json(self):
         import json
+
         data = {
             "name": "json-scenario",
             "context": {"tenant_id": "t1"},
@@ -61,6 +62,7 @@ class TestRunScenario:
     @pytest.mark.asyncio
     async def test_extraction_pass(self):
         from agent_memory.providers.rule_based_extractor import RuleBasedExtractor
+
         extractor = RuleBasedExtractor()
 
         scenario = EvaluationScenario(
@@ -79,6 +81,7 @@ class TestRunScenario:
     @pytest.mark.asyncio
     async def test_extraction_no_match(self):
         from agent_memory.providers.rule_based_extractor import RuleBasedExtractor
+
         extractor = RuleBasedExtractor()
 
         scenario = EvaluationScenario(
@@ -97,6 +100,7 @@ class TestRunScenario:
     @pytest.mark.asyncio
     async def test_empty_messages(self):
         from agent_memory.providers.rule_based_extractor import RuleBasedExtractor
+
         extractor = RuleBasedExtractor()
 
         scenario = EvaluationScenario(
@@ -111,6 +115,7 @@ class TestRunScenario:
     @pytest.mark.asyncio
     async def test_setup_action_sets_memory_status_before_retrieval(self):
         from agent_memory.providers.rule_based_extractor import RuleBasedExtractor
+
         extractor = RuleBasedExtractor()
 
         scenario = EvaluationScenario(

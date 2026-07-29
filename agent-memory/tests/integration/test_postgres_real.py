@@ -47,7 +47,9 @@ def postgres_uri() -> str:
     container.with_env("POSTGRES_PASSWORD", "agent_memory")
     container.with_exposed_ports(5432)
     container.waiting_for(
-        LogMessageWaitStrategy("database system is ready to accept connections").with_startup_timeout(45)
+        LogMessageWaitStrategy(
+            "database system is ready to accept connections"
+        ).with_startup_timeout(45)
     )
     container.start()
     try:
@@ -110,7 +112,9 @@ async def test_real_postgres_pgvector_rls_and_memory_client(migrated_postgres: s
 
     engine = create_async_engine(migrated_postgres)
     async with engine.begin() as conn:
-        vector_installed = await conn.scalar(text("SELECT count(*) FROM pg_extension WHERE extname = 'vector'"))
+        vector_installed = await conn.scalar(
+            text("SELECT count(*) FROM pg_extension WHERE extname = 'vector'")
+        )
         assert vector_installed == 1
 
         rls_rows = (
@@ -153,9 +157,13 @@ async def test_real_postgres_cross_tenant_get_denied(migrated_postgres: str) -> 
             sensitivity="public",
             embedding=[0.0] * 128,
         )
-        await backend.save_memory(record, version, context=TenantContext(tenant_id="tenant-real-owner"))
+        await backend.save_memory(
+            record, version, context=TenantContext(tenant_id="tenant-real-owner")
+        )
 
-        leaked = await backend.get_memory(record.id, context=TenantContext(tenant_id="tenant-real-other"))
+        leaked = await backend.get_memory(
+            record.id, context=TenantContext(tenant_id="tenant-real-other")
+        )
         assert leaked is None
     finally:
         await backend.close()

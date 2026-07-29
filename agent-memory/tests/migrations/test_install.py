@@ -6,7 +6,6 @@ import os
 
 import pytest
 
-
 pytestmark = [
     pytest.mark.skipif(
         not os.environ.get("AGENT_MEMORY_DATABASE__URI"),
@@ -20,7 +19,9 @@ pytestmark = [
 def database_url() -> str:
     url = os.environ["AGENT_MEMORY_DATABASE__URI"]
     # Normalize async driver for alembic
-    return url.replace("+asyncpg", "").replace("+psycopg", "").replace("asyncpg://", "postgresql://")
+    return (
+        url.replace("+asyncpg", "").replace("+psycopg", "").replace("asyncpg://", "postgresql://")
+    )
 
 
 async def test_alembic_can_run_migrations():
@@ -50,8 +51,8 @@ async def test_alembic_heads_match_revision():
 
 async def test_migration_idempotency():
     """Verify alembic stamp head can be run multiple times."""
-    from alembic.config import Config
     from alembic.command import check
+    from alembic.config import Config
 
     alembic_cfg = Config("alembic.ini")
     # check raises SystemExit if not at head, otherwise passes

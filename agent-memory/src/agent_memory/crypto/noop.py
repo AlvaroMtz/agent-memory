@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import base64
 
-from agent_memory.ports.encryption import EncryptionContext, EncryptionProvider
+from agent_memory.ports.encryption import EncryptedPayload, EncryptionContext, EncryptionProvider
 
 
 class NoopEncryptionProvider(EncryptionProvider):
@@ -23,7 +23,7 @@ class NoopEncryptionProvider(EncryptionProvider):
         plaintext: bytes,
         *,
         context: EncryptionContext,
-    ) -> "EncryptedPayload":
+    ) -> EncryptedPayload:
         """Return plaintext as ciphertext with no actual encryption.
 
         Uses base64 encoding as a transparent wrapper so the round-trip
@@ -39,7 +39,7 @@ class NoopEncryptionProvider(EncryptionProvider):
 
     async def decrypt(
         self,
-        payload: "EncryptedPayload",
+        payload: EncryptedPayload,
         *,
         context: EncryptionContext,
     ) -> bytes:

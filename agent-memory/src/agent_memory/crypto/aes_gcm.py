@@ -6,14 +6,13 @@ Key derivation from a config-provided key using HKDF-SHA256.
 
 from __future__ import annotations
 
-import base64
 import os
 
+from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
-from cryptography.hazmat.primitives import hashes
 
-from agent_memory.ports.encryption import EncryptionContext, EncryptedPayload
+from agent_memory.ports.encryption import EncryptedPayload, EncryptionContext
 
 
 class AESGCMEncryptionProvider:

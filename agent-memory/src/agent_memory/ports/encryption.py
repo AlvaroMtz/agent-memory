@@ -6,8 +6,6 @@ from typing import Protocol, runtime_checkable
 
 from pydantic import BaseModel
 
-from agent_memory.context import MemoryContext
-
 
 class EncryptionContext(BaseModel):
     """Context for encryption/decryption operations.

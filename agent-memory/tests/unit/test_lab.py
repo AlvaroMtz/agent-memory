@@ -6,14 +6,20 @@ import pytest
 
 pytest.importorskip("fastapi")
 
+from starlette.requests import Request
+
 from agent_memory.context import TenantContext
 from agent_memory.domain.audit import AuditEvent
 from agent_memory.lab import app as lab_app
-from agent_memory.lab.schemas import ConsentGrantRequest, ConsentRevokeRequest, ConversationSimulationRequest, RetrieveRequest
+from agent_memory.lab.schemas import (
+    ConsentGrantRequest,
+    ConsentRevokeRequest,
+    ConversationSimulationRequest,
+    RetrieveRequest,
+)
 from agent_memory.lab.services import LabServices
 from agent_memory.providers.in_memory_backend import InMemoryBackend
 from agent_memory.providers.rule_based_extractor import RuleBasedExtractor
-from starlette.requests import Request
 
 
 @pytest.fixture()
@@ -37,7 +43,9 @@ async def test_lab_services_simulate_conversation(lab_services: LabServices) -> 
 @pytest.mark.asyncio
 async def test_lab_services_consent_add_retrieve_and_revoke(lab_services: LabServices) -> None:
     granted = await lab_services.grant_consent("default", ["preference"], sensitivity="public")
-    saved = await lab_services.add_memory("preference", "code_language", "Python", subject_id="default")
+    saved = await lab_services.add_memory(
+        "preference", "code_language", "Python", subject_id="default"
+    )
     retrieved = await lab_services.run_retrieval(query="", subject_id="default")
     revoked = await lab_services.revoke_consent("default")
 
@@ -85,7 +93,9 @@ async def test_lab_services_error_paths() -> None:
     await backend.initialize()
     services = LabServices(backend=backend, extractor=FailingExtractor())
 
-    simulated = await services.simulate_conversation([{"role": "user", "content": "I prefer Python"}])
+    simulated = await services.simulate_conversation(
+        [{"role": "user", "content": "I prefer Python"}]
+    )
     stats = await services.get_stats()
     audit = await services.get_audit_log()
     granted = await services.grant_consent("subject", ["preference"])
@@ -114,11 +124,17 @@ async def test_lab_api_health_and_json_endpoints(lab_services: LabServices) -> N
     assert simulation.extracted[0]["predicate"] == "code_language"
 
     granted = await lab_app.grant_consent(
-        ConsentGrantRequest(subject_id="default", memory_types=["preference"], sensitivity="public"),
+        ConsentGrantRequest(
+            subject_id="default", memory_types=["preference"], sensitivity="public"
+        ),
         services=lab_services,
     )
-    retrieved = await lab_app.search_memory(RetrieveRequest(query="", subject_id="default"), services=lab_services)
-    revoked = await lab_app.revoke_consent(ConsentRevokeRequest(subject_id="default"), services=lab_services)
+    retrieved = await lab_app.search_memory(
+        RetrieveRequest(query="", subject_id="default"), services=lab_services
+    )
+    revoked = await lab_app.revoke_consent(
+        ConsentRevokeRequest(subject_id="default"), services=lab_services
+    )
 
     assert granted.status_code == 200
     assert retrieved.total_count >= 0
@@ -127,7 +143,9 @@ async def test_lab_api_health_and_json_endpoints(lab_services: LabServices) -> N
 
 @pytest.mark.asyncio
 async def test_lab_api_pages_render(lab_services: LabServices) -> None:
-    request = Request({"type": "http", "method": "GET", "path": "/", "headers": [], "app": lab_app.app})
+    request = Request(
+        {"type": "http", "method": "GET", "path": "/", "headers": [], "app": lab_app.app}
+    )
 
     responses = [
         await lab_app.dashboard(request, services=lab_services),

@@ -6,10 +6,11 @@ Uses Mapped annotations with the 2.0-style declarative base.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     Boolean,
     DateTime,
@@ -21,9 +22,9 @@ from sqlalchemy import (
     Text,
     func,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-from pgvector.sqlalchemy import Vector
 
 
 class Base(DeclarativeBase):
@@ -40,46 +41,64 @@ class MemoryModel(Base):
     __tablename__ = "memories"
 
     id: Mapped[UUID] = mapped_column(
-        PG_UUID(as_uuid=True), primary_key=True, default=uuid4,
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
     )
     tenant_id: Mapped[str] = mapped_column(
-        String(128), nullable=False, index=True,
+        String(128),
+        nullable=False,
+        index=True,
     )
     subject_id: Mapped[str] = mapped_column(
-        String(256), nullable=False, index=True,
+        String(256),
+        nullable=False,
+        index=True,
     )
     purpose: Mapped[str] = mapped_column(
-        String(128), nullable=False,
+        String(128),
+        nullable=False,
     )
     memory_type: Mapped[str] = mapped_column(
-        String(32), nullable=False, index=True,
+        String(32),
+        nullable=False,
+        index=True,
     )
     subject_key: Mapped[str] = mapped_column(
-        String(256), nullable=False,
+        String(256),
+        nullable=False,
     )
     predicate: Mapped[str] = mapped_column(
-        String(256), nullable=False,
+        String(256),
+        nullable=False,
     )
     status: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="candidate", index=True,
+        String(32),
+        nullable=False,
+        default="candidate",
+        index=True,
     )
     current_version: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=0,
+        Integer,
+        nullable=False,
+        default=0,
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False,
-        default=lambda: datetime.now(timezone.utc),
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(UTC),
         server_default=func.now(),
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False,
-        default=lambda: datetime.now(timezone.utc),
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(UTC),
         server_default=func.now(),
-        onupdate=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(UTC),
     )
 
     # Relationship
-    versions: Mapped[list["MemoryVersionModel"]] = relationship(
+    versions: Mapped[list[MemoryVersionModel]] = relationship(
         back_populates="memory",
         cascade="all, delete-orphan",
         order_by="MemoryVersionModel.version",
@@ -99,7 +118,8 @@ class MemoryVersionModel(Base):
     __tablename__ = "memory_versions"
 
     id: Mapped[int] = mapped_column(
-        Integer, autoincrement=True,  # synthetic PK for Alembic happiness
+        Integer,
+        autoincrement=True,  # synthetic PK for Alembic happiness
     )
     memory_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True),
@@ -107,41 +127,60 @@ class MemoryVersionModel(Base):
         nullable=False,
     )
     version: Mapped[int] = mapped_column(
-        Integer, nullable=False,
+        Integer,
+        nullable=False,
     )
     value: Mapped[Any] = mapped_column(
-        JSONB, nullable=False,
+        JSONB,
+        nullable=False,
     )
     searchable_summary: Mapped[str] = mapped_column(
-        Text, nullable=False, default="",
+        Text,
+        nullable=False,
+        default="",
     )
     embedding: Mapped[list[float] | None] = mapped_column(
-        Vector(128), nullable=True,
+        Vector(128),
+        nullable=True,
     )
     confidence: Mapped[float] = mapped_column(
-        Float, nullable=False,
+        Float,
+        nullable=False,
     )
     sensitivity: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="internal",
+        String(32),
+        nullable=False,
+        default="internal",
     )
     source_type: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="user_explicit",
+        String(32),
+        nullable=False,
+        default="user_explicit",
     )
     evidence_text: Mapped[str | None] = mapped_column(
-        Text, nullable=True, default=None,
+        Text,
+        nullable=True,
+        default=None,
     )
     source_message_id: Mapped[str | None] = mapped_column(
-        String(256), nullable=True, default=None,
+        String(256),
+        nullable=True,
+        default=None,
     )
     supersedes_memory_id: Mapped[UUID | None] = mapped_column(
-        PG_UUID(as_uuid=True), nullable=True, default=None,
+        PG_UUID(as_uuid=True),
+        nullable=True,
+        default=None,
     )
     consent_id: Mapped[UUID | None] = mapped_column(
-        PG_UUID(as_uuid=True), nullable=True, default=None,
+        PG_UUID(as_uuid=True),
+        nullable=True,
+        default=None,
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False,
-        default=lambda: datetime.now(timezone.utc),
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(UTC),
         server_default=func.now(),
     )
 
@@ -151,7 +190,7 @@ class MemoryVersionModel(Base):
     )
 
     # Relationship
-    memory: Mapped["MemoryModel"] = relationship(back_populates="versions")
+    memory: Mapped[MemoryModel] = relationship(back_populates="versions")
 
     def __repr__(self) -> str:
         return (
@@ -166,54 +205,80 @@ class ConsentModel(Base):
     __tablename__ = "consent"
 
     id: Mapped[UUID] = mapped_column(
-        PG_UUID(as_uuid=True), primary_key=True, default=uuid4,
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
     )
     tenant_id: Mapped[str] = mapped_column(
-        String(128), nullable=False, index=True,
+        String(128),
+        nullable=False,
+        index=True,
     )
     subject_id: Mapped[str] = mapped_column(
-        String(256), nullable=False, index=True,
+        String(256),
+        nullable=False,
+        index=True,
     )
     actor_id: Mapped[str] = mapped_column(
-        String(256), nullable=False,
+        String(256),
+        nullable=False,
     )
     purpose: Mapped[str] = mapped_column(
-        String(128), nullable=False,
+        String(128),
+        nullable=False,
     )
     allow_write: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False,
+        Boolean,
+        nullable=False,
+        default=False,
     )
     allow_read: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False,
+        Boolean,
+        nullable=False,
+        default=False,
     )
     allowed_memory_types: Mapped[list[str]] = mapped_column(
-        JSONB, nullable=False, default=list,
+        JSONB,
+        nullable=False,
+        default=list,
     )
     allowed_sensitivity: Mapped[list[str]] = mapped_column(
-        JSONB, nullable=False, default=list,
+        JSONB,
+        nullable=False,
+        default=list,
     )
     version: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=1,
+        Integer,
+        nullable=False,
+        default=1,
     )
     revoked_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True, default=None,
+        DateTime(timezone=True),
+        nullable=True,
+        default=None,
     )
     expires_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True, default=None,
+        DateTime(timezone=True),
+        nullable=True,
+        default=None,
     )
     retention_days: Mapped[int | None] = mapped_column(
-        Integer, nullable=True, default=None,
+        Integer,
+        nullable=True,
+        default=None,
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False,
-        default=lambda: datetime.now(timezone.utc),
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(UTC),
         server_default=func.now(),
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False,
-        default=lambda: datetime.now(timezone.utc),
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(UTC),
         server_default=func.now(),
-        onupdate=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(UTC),
     )
 
     def __repr__(self) -> str:
@@ -230,26 +295,38 @@ class AuditLogModel(Base):
     __tablename__ = "audit_log"
 
     id: Mapped[UUID] = mapped_column(
-        PG_UUID(as_uuid=True), primary_key=True, default=uuid4,
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
     )
     tenant_id: Mapped[str] = mapped_column(
-        String(128), nullable=False, index=True,
+        String(128),
+        nullable=False,
+        index=True,
     )
     actor_id: Mapped[str] = mapped_column(
-        String(256), nullable=False,
+        String(256),
+        nullable=False,
     )
     action: Mapped[str] = mapped_column(
-        String(64), nullable=False, index=True,
+        String(64),
+        nullable=False,
+        index=True,
     )
     memory_type: Mapped[str | None] = mapped_column(
-        String(32), nullable=True, default=None,
+        String(32),
+        nullable=True,
+        default=None,
     )
     details: Mapped[dict[str, Any] | None] = mapped_column(
-        JSONB, nullable=True, default=None,
+        JSONB,
+        nullable=True,
+        default=None,
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False,
-        default=lambda: datetime.now(timezone.utc),
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(UTC),
         server_default=func.now(),
     )
 

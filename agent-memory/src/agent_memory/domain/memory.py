@@ -6,7 +6,7 @@ PostgreSQL, or any external library beyond Pydantic.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -42,8 +42,8 @@ class MemoryRecord(BaseModel):
     valid_from: datetime | None = None
     valid_until: datetime | None = None
 
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     def is_active(self) -> bool:
         """Check if this memory is currently active and retrievable."""
@@ -58,7 +58,7 @@ class MemoryRecord(BaseModel):
     def is_expired(self) -> bool:
         if self.status == "expired":
             return True
-        if self.valid_until and self.valid_until < datetime.now(timezone.utc):
+        if self.valid_until and self.valid_until < datetime.now(UTC):
             return True
         return False
 
@@ -71,17 +71,17 @@ class MemoryRecord(BaseModel):
     def supersede(self) -> None:
         """Mark this memory as superseded."""
         self.status = "superseded"
-        self.updated_at = datetime.now(timezone.utc)
+        self.updated_at = datetime.now(UTC)
 
     def revoke(self) -> None:
         """Revoke this memory."""
         self.status = "revoked"
-        self.updated_at = datetime.now(timezone.utc)
+        self.updated_at = datetime.now(UTC)
 
     def delete_record(self) -> None:
         """Soft-delete this memory."""
         self.status = "deleted"
-        self.updated_at = datetime.now(timezone.utc)
+        self.updated_at = datetime.now(UTC)
 
 
 class MemoryVersion(BaseModel):
@@ -117,7 +117,7 @@ class MemoryVersion(BaseModel):
     consent_id: UUID | None = None
 
     supersedes_memory_id: UUID | None = None
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     @property
     def identity_key(self) -> tuple[str, str, str, str]:

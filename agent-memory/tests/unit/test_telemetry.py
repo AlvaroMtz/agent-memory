@@ -3,26 +3,26 @@
 from __future__ import annotations
 
 import contextlib
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-from agent_memory.telemetry.tracing import (
-    TracingProvider,
-    _NoopSpan,
-    _NoopTracer,
-    setup_tracing,
-    create_trace_context,
-    trace_operation,
-)
+from agent_memory.telemetry import redaction
 from agent_memory.telemetry.metrics import (
     MetricsProvider,
     _NoopCounter,
     _NoopHistogram,
     _NoopMeter,
-    setup_metrics,
-    record_operation_duration,
     record_memory_count,
+    record_operation_duration,
+    setup_metrics,
 )
-from agent_memory.telemetry import redaction
+from agent_memory.telemetry.tracing import (
+    TracingProvider,
+    _NoopSpan,
+    _NoopTracer,
+    create_trace_context,
+    setup_tracing,
+    trace_operation,
+)
 
 
 class TestTracingProviderNoOp:

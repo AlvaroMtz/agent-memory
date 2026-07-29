@@ -59,5 +59,4 @@ class ConsentProvider(Protocol):
 class ConsentProviderFactory(Protocol):
     """Factory for creating ConsentProvider instances."""
 
-    def create(self, **kwargs) -> ConsentProvider:
-        ...
+    def create(self, **kwargs) -> ConsentProvider: ...

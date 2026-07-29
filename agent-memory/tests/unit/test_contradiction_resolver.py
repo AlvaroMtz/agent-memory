@@ -53,15 +53,21 @@ class TestContradictionResolverClassify:
             source_message_id="msg-1",
             evidence_text="Rust",
         )
-        result = await self.resolver.classify(self.existing_pref, candidate, existing_value="TypeScript")
+        result = await self.resolver.classify(
+            self.existing_pref, candidate, existing_value="TypeScript"
+        )
         assert result == "supersedes"
 
     @pytest.mark.asyncio
     async def test_classify_contradicts_semantic(self):
         """Same predicate, different value, semantic type → contradicts."""
         existing = MemoryRecord(
-            tenant_id="t", subject_id="s", purpose="p",
-            memory_type="semantic", subject_key="employment", predicate="employer",
+            tenant_id="t",
+            subject_id="s",
+            purpose="p",
+            memory_type="semantic",
+            subject_key="employment",
+            predicate="employer",
             status="active",
         )
         candidate = MemoryCandidate(
@@ -110,8 +116,12 @@ class TestContradictionResolverResolve:
     def setup_method(self) -> None:
         self.resolver = ContradictionResolver()
         self.existing = MemoryRecord(
-            tenant_id="t", subject_id="s", purpose="p",
-            memory_type="preference", subject_key="code", predicate="code_language",
+            tenant_id="t",
+            subject_id="s",
+            purpose="p",
+            memory_type="preference",
+            subject_key="code",
+            predicate="code_language",
             status="active",
         )
         self.candidate = MemoryCandidate(
@@ -171,7 +181,7 @@ class TestRememberWithContradictionResolution:
         """Duplicates are skipped when conflict_resolver is provided."""
         from agent_memory.application.remember import extract_memories
         from agent_memory.providers.fake_extractor import FakeExtractor
-        
+
         messages = [
             {"id": "msg-1", "role": "user", "content": "Me gusta TypeScript"},
         ]
@@ -187,13 +197,13 @@ class TestRememberWithContradictionResolution:
         # The extractor will create one candidate, and it won't match any
         # existing memories so it should pass through
         extractor = FakeExtractor(responses={"Me gusta TypeScript": [candidate]})
-        
+
         result = await extract_memories(
             messages=messages,
             subject_id="user-1",
             tenant_id="tenant-a",
             extractor=extractor,
         )
-        
+
         assert len(result) == 1
         assert result[0].predicate == "code_language"

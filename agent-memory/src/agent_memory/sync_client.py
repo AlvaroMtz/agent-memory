@@ -18,8 +18,7 @@ from typing import Any
 from uuid import UUID
 
 from agent_memory.client import MemoryClient
-from agent_memory.context import MemoryContext, TenantContext
-from agent_memory.domain.candidate import MemoryCandidate
+from agent_memory.context import MemoryContext
 from agent_memory.domain.consent import ConsentGrant, ConsentRecord
 from agent_memory.domain.forget import ForgetResult
 from agent_memory.domain.memory import MemoryRecord
@@ -49,7 +48,7 @@ class SyncMemoryClient:
     ) -> None:
         self._client = MemoryClient(backend, extractor, embedder, consent, encryption)
 
-    def __enter__(self) -> "SyncMemoryClient":
+    def __enter__(self) -> SyncMemoryClient:
         asyncio.run(self._client.__aenter__())
         return self
 
@@ -78,7 +77,9 @@ class SyncMemoryClient:
     ) -> RetrievalResult:
         """Run the full retrieval pipeline."""
         return asyncio.run(
-            self._client.retrieve(context=context, query=query, filters=filters, max_tokens=max_tokens)
+            self._client.retrieve(
+                context=context, query=query, filters=filters, max_tokens=max_tokens
+            )
         )
 
     # ── list_memories ──────────────────────────────────────────────────────────
@@ -95,7 +96,11 @@ class SyncMemoryClient:
         """List memories for a subject."""
         return asyncio.run(
             self._client.list_memories(
-                context=context, memory_type=memory_type, status=status, limit=limit, offset=offset,
+                context=context,
+                memory_type=memory_type,
+                status=status,
+                limit=limit,
+                offset=offset,
             )
         )
 
@@ -141,9 +146,7 @@ class SyncMemoryClient:
         consent_id: UUID | None = None,
     ) -> ConsentRecord:
         """Revoke consent using the context's tenant_id."""
-        return asyncio.run(
-            self._client.revoke_consent(subject_id, context, consent_id=consent_id)
-        )
+        return asyncio.run(self._client.revoke_consent(subject_id, context, consent_id=consent_id))
 
     def check_consent(
         self,

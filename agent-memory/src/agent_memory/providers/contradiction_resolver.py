@@ -7,11 +7,9 @@ resolves contradictions according to the ConflictResolver port protocol.
 
 from __future__ import annotations
 
-from agent_memory.constants import ContradictionClassEnum
 from agent_memory.domain.candidate import MemoryCandidate
 from agent_memory.domain.memory import MemoryRecord
 from agent_memory.domain.policies import classify_contradiction
-from agent_memory.ports.conflict import ConflictResolver
 
 
 class ContradictionResolver:

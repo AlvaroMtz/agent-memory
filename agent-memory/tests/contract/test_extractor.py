@@ -2,11 +2,11 @@
 
 Reusable test suite that any extractor implementation must pass.
 """
+
 from __future__ import annotations
 
 import pytest
 
-from agent_memory.domain.candidate import MemoryCandidate
 from agent_memory.ports.extractor import MemoryExtractor
 
 
@@ -72,6 +72,7 @@ class TestRuleBasedExtractorContract:
     @pytest.fixture
     def extractor(self):
         from agent_memory.providers.rule_based_extractor import RuleBasedExtractor
+
         return RuleBasedExtractor()
 
     @pytest.mark.asyncio

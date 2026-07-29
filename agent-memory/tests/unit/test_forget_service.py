@@ -89,8 +89,12 @@ async def test_forget_tenant_deletes_each_subject_once(backend: InMemoryBackend)
 
     await ForgetService(backend).forget_tenant("tenant-a", actor_id="admin")
 
-    memories_1 = await backend.list_memories(tenant_id="tenant-a", subject_id="subject-1", status="deleted")
-    memories_2 = await backend.list_memories(tenant_id="tenant-a", subject_id="subject-2", status="deleted")
+    memories_1 = await backend.list_memories(
+        tenant_id="tenant-a", subject_id="subject-1", status="deleted"
+    )
+    memories_2 = await backend.list_memories(
+        tenant_id="tenant-a", subject_id="subject-2", status="deleted"
+    )
     audit = await backend.query_audit(AuditQuery(tenant_id="tenant-a"))
 
     assert len(memories_1) == 1

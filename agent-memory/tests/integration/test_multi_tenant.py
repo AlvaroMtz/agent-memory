@@ -8,16 +8,15 @@ Validates that tenant isolation is enforced at multiple layers:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent_memory.context import TenantContext
-from agent_memory.domain.consent import ConsentRecord
-from agent_memory.domain.memory import MemoryRecord, MemoryVersion
+from agent_memory.domain.memory import MemoryVersion
 from agent_memory.exceptions import (
     ConsentNotFoundError,
     MemoryNotFoundError,
@@ -32,7 +31,7 @@ from agent_memory.postgres.repositories import (
 )
 from agent_memory.postgres.rls import RLS_TABLES, apply_rls_policies_sql, enable_rqls_sql
 
-_NOW = datetime.now(timezone.utc)
+_NOW = datetime.now(UTC)
 
 
 # ── Helper factories ──────────────────────────────────────────────────────────────
@@ -109,7 +108,8 @@ class TestCrossTenantMemoryIsolation:
     """Verify that one tenant cannot access another tenant's memories."""
 
     async def test_list_memories_respects_tenant_boundary(
-        self, mock_session,
+        self,
+        mock_session,
     ):
         """LIST for tenant-alpha returns only alpha's memories."""
         alpha_mem = make_memory_orm(tenant_id="tenant-alpha")
@@ -144,7 +144,8 @@ class TestCrossTenantMemoryIsolation:
         assert beta_results[0].id == beta_mem.id
 
     async def test_update_status_isolated_per_tenant(
-        self, mock_session,
+        self,
+        mock_session,
     ):
         """Update in tenant-alpha does not affect tenant-beta data."""
         mock_found = MagicMock()
@@ -163,7 +164,8 @@ class TestCrossTenantMemoryIsolation:
             await repo.update_status(mid, "active", tenant_id="tenant-beta")
 
     async def test_add_version_checks_tenant(
-        self, mock_session,
+        self,
+        mock_session,
     ):
         """add_version fails for cross-tenant access."""
         mem_id = uuid4()
@@ -194,7 +196,9 @@ class TestCrossTenantMemoryIsolation:
 
         repo_alpha = MemoryRepository(mock_alpha_session)
         result = await repo_alpha.add_version(
-            mem_id, version, tenant_id="tenant-alpha",
+            mem_id,
+            version,
+            tenant_id="tenant-alpha",
         )
         assert result.version == 1
 
@@ -207,7 +211,9 @@ class TestCrossTenantMemoryIsolation:
         repo_beta = MemoryRepository(mock_beta_session)
         with pytest.raises(MemoryNotFoundError):
             await repo_beta.add_version(
-                mem_id, version, tenant_id="tenant-beta",
+                mem_id,
+                version,
+                tenant_id="tenant-beta",
             )
 
 
@@ -215,7 +221,8 @@ class TestCrossTenantConsentIsolation:
     """Verify that one tenant cannot access another tenant's consent records."""
 
     async def test_get_active_consent_cross_tenant(
-        self, mock_session,
+        self,
+        mock_session,
     ):
         """Active consent lookup for tenant-beta should not return alpha's record."""
         consent_id = uuid4()
@@ -246,7 +253,8 @@ class TestCrossTenantConsentIsolation:
         assert result is None
 
     async def test_revoke_consent_cross_tenant(
-        self, mock_session,
+        self,
+        mock_session,
     ):
         """Revoking a consent from wrong tenant raises ConsentNotFoundError."""
         consent_id = uuid4()
@@ -260,7 +268,8 @@ class TestCrossTenantConsentIsolation:
             await repo.revoke(consent_id, tenant_id="tenant-beta")
 
     async def test_list_consent_isolated(
-        self, mock_session,
+        self,
+        mock_session,
     ):
         """LIST consent returns only the requesting tenant's records."""
         alpha_consent = make_consent_orm(tenant_id="tenant-alpha")

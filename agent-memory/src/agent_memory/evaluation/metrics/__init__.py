@@ -8,6 +8,12 @@ Modules:
 
 from __future__ import annotations
 
+from agent_memory.evaluation.metrics.consent import (
+    audit_integrity,
+    consent_coverage,
+    consent_grant_rate,
+    forget_completeness,
+)
 from agent_memory.evaluation.metrics.extraction import (
     extraction_f1,
     extraction_precision,
@@ -19,12 +25,6 @@ from agent_memory.evaluation.metrics.retrieval import (
     ndcg_at_k,
     precision_at_k,
     recall_at_k,
-)
-from agent_memory.evaluation.metrics.consent import (
-    consent_coverage,
-    consent_grant_rate,
-    forget_completeness,
-    audit_integrity,
 )
 
 __all__ = [

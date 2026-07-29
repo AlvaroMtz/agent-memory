@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import json
 import asyncio
 import io
+import json
 import os
+from datetime import UTC, datetime
 from pathlib import Path
-from datetime import datetime, timezone
 from typing import Any
 
 import yaml
@@ -34,7 +34,7 @@ class EvaluationResult:
 def generate_json_report(results: list[EvaluationResult]) -> str:
     """Generate a JSON report from evaluation results."""
     report = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "total": len(results),
         "passed": sum(1 for r in results if r.passed),
         "failed": sum(1 for r in results if not r.passed),
@@ -42,12 +42,14 @@ def generate_json_report(results: list[EvaluationResult]) -> str:
     }
 
     for r in results:
-        report["results"].append({
-            "scenario": r.scenario_name,
-            "passed": r.passed,
-            "metrics": r.metrics,
-            "errors": r.errors,
-        })
+        report["results"].append(
+            {
+                "scenario": r.scenario_name,
+                "passed": r.passed,
+                "metrics": r.metrics,
+                "errors": r.errors,
+            }
+        )
 
     return json.dumps(report, indent=2, default=str)
 
@@ -96,7 +98,9 @@ def _assert_release_gates(strict: bool = False) -> list[str]:
             raise
 
     # Gate 2: evaluation datasets exist
-    datasets_path = _resolve_project_path(config.evaluation.get("datasets_path", "./datasets"), project_root)
+    datasets_path = _resolve_project_path(
+        config.evaluation.get("datasets_path", "./datasets"), project_root
+    )
     if datasets_path.exists() and any(datasets_path.iterdir()):
         results.append(f"datasets OK ({datasets_path})")
     else:
@@ -220,6 +224,7 @@ def _assert_release_gates(strict: bool = False) -> list[str]:
     # Gate 5: tests exist and are importable
     try:
         import agent_memory  # noqa: F401
+
         results.append("package importable")
     except Exception as exc:
         results.append(f"package import FAIL: {exc}")
@@ -323,8 +328,12 @@ async def _run_release_evaluation_metrics(datasets_path: Path) -> dict[str, Any]
         "passed_scenarios": passed,
         "pass_rate": (passed / total) if total else 1.0,
         "failed_scenarios": failed_names,
-        "extraction_precision": extraction_precision(extraction_matched, extraction_checked - extraction_matched),
-        "extraction_recall": extraction_recall(extraction_matched, extraction_checked - extraction_matched),
+        "extraction_precision": extraction_precision(
+            extraction_matched, extraction_checked - extraction_matched
+        ),
+        "extraction_recall": extraction_recall(
+            extraction_matched, extraction_checked - extraction_matched
+        ),
         "evidence_exact_match": (evidence_matched / evidence_checked) if evidence_checked else 1.0,
         "retrieval_precision_at_5": (query_passed / query_total) if query_total else 1.0,
         "retrieval_recall_at_5": (query_passed / query_total) if query_total else 1.0,
@@ -349,7 +358,11 @@ def _run_global_coverage_metric() -> float:
             "coverage is required for global_coverage gate; install test extras first"
         ) from exc
 
-    data_file = os.environ.get("AGENT_MEMORY_COVERAGE_FILE") or os.environ.get("COVERAGE_FILE") or ".coverage"
+    data_file = (
+        os.environ.get("AGENT_MEMORY_COVERAGE_FILE")
+        or os.environ.get("COVERAGE_FILE")
+        or ".coverage"
+    )
     if not Path(data_file).exists():
         raise FileNotFoundError(
             f"coverage data file not found: {data_file}; run coverage before release check"
@@ -402,7 +415,7 @@ def generate_junit_xml(results: list[EvaluationResult]) -> str:
         if r.passed:
             lines.append(
                 f'  <testcase name="{r.scenario_name}" classname="agent_memory.evaluation">'
-                '</testcase>'
+                "</testcase>"
             )
         else:
             lines.append(
@@ -411,12 +424,12 @@ def generate_junit_xml(results: list[EvaluationResult]) -> str:
             for error in r.errors:
                 lines.append(
                     f'    <failure message="{_escape_xml(error)}">'
-                    f'{_escape_xml(r.scenario_name)}: {error}'
-                    '</failure>'
+                    f"{_escape_xml(r.scenario_name)}: {error}"
+                    "</failure>"
                 )
-            lines.append('  </testcase>')
+            lines.append("  </testcase>")
 
-    lines.append('</testsuites>')
+    lines.append("</testsuites>")
     return "\n".join(lines)
 
 
@@ -441,10 +454,10 @@ def generate_html_report(results: list[EvaluationResult]) -> str:
                 </span>
             </td>
             <td class="px-6 py-4 text-sm text-gray-500">
-                {', '.join(_escape_html(e) for e in r.errors) if r.errors else '<span class="text-gray-400">-</span>'}
+                {", ".join(_escape_html(e) for e in r.errors) if r.errors else '<span class="text-gray-400">-</span>'}
             </td>
             <td class="px-6 py-4 text-sm text-gray-500">
-                {', '.join(f"{k}: {v}" for k, v in r.metrics.items()) if r.metrics else '<span class="text-gray-400">-</span>'}
+                {", ".join(f"{k}: {v}" for k, v in r.metrics.items()) if r.metrics else '<span class="text-gray-400">-</span>'}
             </td>
         </tr>
         """
@@ -460,7 +473,7 @@ def generate_html_report(results: list[EvaluationResult]) -> str:
 <body class="bg-gray-50 min-h-screen p-8">
     <div class="max-w-6xl mx-auto">
         <h1 class="text-3xl font-bold text-gray-800 mb-2">Evaluation Report</h1>
-        <p class="text-gray-600 mb-6">Generated: {datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")}</p>
+        <p class="text-gray-600 mb-6">Generated: {datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")}</p>
 
         <!-- Summary Cards -->
         <div class="grid grid-cols-3 gap-6 mb-8">
@@ -524,8 +537,5 @@ def _escape_xml(text: str) -> str:
 def _escape_html(text: str) -> str:
     """Escape HTML special characters."""
     return (
-        text.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
+        text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
     )

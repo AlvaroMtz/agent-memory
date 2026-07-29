@@ -11,6 +11,8 @@ Tests exercise:
 
 from __future__ import annotations
 
+from datetime import UTC
+
 import pytest
 
 from agent_memory.application.consent import ConsentService
@@ -20,8 +22,6 @@ from agent_memory.domain.audit import AuditQuery
 from agent_memory.domain.consent import ConsentGrant, ConsentRecord
 from agent_memory.domain.memory import MemoryRecord, MemoryVersion
 from agent_memory.exceptions import (
-    ConsentDeniedError,
-    MissingTenantError,
     TenantIsolationError,
 )
 from agent_memory.providers.in_memory_backend import InMemoryBackend
@@ -293,7 +293,7 @@ class TestConsentBypass:
 
     @pytest.mark.asyncio
     async def test_expired_consent_denies_operations(self, consent_service, backend):
-        from datetime import datetime, timedelta, timezone
+        from datetime import datetime, timedelta
 
         # Grant consent with immediate expiry
         await consent_service.grant_consent(
@@ -304,7 +304,7 @@ class TestConsentBypass:
                 purpose="testing",
                 allow_write=True,
                 allow_read=True,
-                expires_at=datetime.now(timezone.utc) - timedelta(hours=1),
+                expires_at=datetime.now(UTC) - timedelta(hours=1),
             ),
         )
 

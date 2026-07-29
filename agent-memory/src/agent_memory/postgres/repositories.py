@@ -11,11 +11,11 @@ converting between ORM models and domain models internally.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select, update, func, or_, and_
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent_memory.domain.audit import AuditEvent, AuditQuery
@@ -32,7 +32,6 @@ from agent_memory.postgres.models import (
     MemoryModel,
     MemoryVersionModel,
 )
-
 
 # ── Helpers ───────────────────────────────────────────────────────────────────────
 
@@ -223,7 +222,7 @@ class MemoryRepository:
             )
             .values(
                 current_version=version.version,
-                updated_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(UTC),
             )
         )
         await self.session.execute(stmt)
@@ -276,7 +275,9 @@ class MemoryRepository:
         distance_expr = None
         if query_vector is not None:
             conditions.append(MemoryVersionModel.embedding.is_not(None))
-            distance_expr = MemoryVersionModel.embedding.cosine_distance(query_vector).label("distance")
+            distance_expr = MemoryVersionModel.embedding.cosine_distance(query_vector).label(
+                "distance"
+            )
 
         stmt = select(MemoryModel, MemoryVersionModel, distance_expr).where(*conditions)
         if distance_expr is not None:
@@ -291,7 +292,9 @@ class MemoryRepository:
             vector_score = 0.0
             if distance is not None:
                 vector_score = max(0.0, min(1.0, 1.0 - float(distance)))
-            results.append((self._orm_to_memory(memory_orm), self._orm_to_version(version_orm), vector_score))
+            results.append(
+                (self._orm_to_memory(memory_orm), self._orm_to_version(version_orm), vector_score)
+            )
         return results
 
     async def update_status(
@@ -310,7 +313,7 @@ class MemoryRepository:
             )
             .values(
                 status=status,
-                updated_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(UTC),
             )
         )
         result = await self.session.execute(stmt)
@@ -395,7 +398,7 @@ class ConsentRepository:
         purpose: str,
     ) -> ConsentRecord | None:
         """Get the active (non-revoked, non-expired) consent for a subject/purpose."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         stmt = (
             select(ConsentModel)
             .where(
@@ -433,8 +436,8 @@ class ConsentRepository:
         if orm is None:
             raise ConsentNotFoundError(f"Consent {consent_id} not found")
 
-        orm.revoked_at = datetime.now(timezone.utc)
-        orm.updated_at = datetime.now(timezone.utc)
+        orm.revoked_at = datetime.now(UTC)
+        orm.updated_at = datetime.now(UTC)
         await self.session.flush()
         return self._orm_to_consent(orm)
 
@@ -488,11 +491,7 @@ class AuditRepository:
                 if orm.details and "resource_id" in orm.details
                 else None
             ),
-            outcome=(
-                orm.details.get("outcome", "allowed")
-                if orm.details
-                else "allowed"
-            ),
+            outcome=(orm.details.get("outcome", "allowed") if orm.details else "allowed"),
             reason=orm.details.get("reason") if orm.details else None,
             metadata=orm.details.get("metadata", {}) if orm.details else {},
             created_at=orm.created_at,

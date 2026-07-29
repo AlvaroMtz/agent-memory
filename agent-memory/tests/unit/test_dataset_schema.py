@@ -2,15 +2,12 @@
 
 import json
 
-import pytest
 import yaml
 
 from agent_memory.evaluation.schema import (
     EvaluationScenario,
     EvaluationSuite,
     ExpectedCandidate,
-    ExpectedMemory,
-    ExpectedQuery,
     ScenarioAction,
     ScenarioConsent,
     ScenarioMessage,
@@ -150,9 +147,7 @@ class TestScenarioResult:
         assert result.errors == []
 
     def test_failed(self):
-        result = ScenarioResult(
-            scenario_name="test", passed=False, errors=["Missing candidate"]
-        )
+        result = ScenarioResult(scenario_name="test", passed=False, errors=["Missing candidate"])
         assert not result.passed
         assert "Missing candidate" in result.errors
 
@@ -162,7 +157,11 @@ class TestEvaluationSuite:
 
     def test_add_result(self):
         suite = EvaluationSuite(name="test-suite")
-        suite.add_result(ScenarioResult(scenario_name="s1", passed=True, candidates_found=1, candidates_expected=1))
+        suite.add_result(
+            ScenarioResult(
+                scenario_name="s1", passed=True, candidates_found=1, candidates_expected=1
+            )
+        )
         suite.add_result(ScenarioResult(scenario_name="s2", passed=False, errors=["fail"]))
         assert suite.total_passed == 1
         assert suite.total_failed == 1

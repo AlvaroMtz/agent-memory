@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from uuid import UUID
-
 from pydantic import BaseModel
 
 from agent_memory.domain.candidate import MemoryCandidate

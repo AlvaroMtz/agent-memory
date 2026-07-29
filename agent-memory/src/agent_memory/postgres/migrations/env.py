@@ -24,6 +24,7 @@ if config.config_file_name is not None:
 # MetaData for autogenerate support
 target_metadata = Base.metadata
 
+
 # Exclude internal Alembic tables from autogenerate
 def include_object(obj, name, type_, reflected, compare_to):
     """Exclude Alembic's own version table from autogenerate."""

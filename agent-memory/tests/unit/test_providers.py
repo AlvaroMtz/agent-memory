@@ -1,7 +1,5 @@
 """Unit tests for deterministic providers."""
 
-import pytest
-
 from agent_memory.domain.candidate import MemoryCandidate
 from agent_memory.providers.deterministic_embeddings import DeterministicEmbeddingProvider
 from agent_memory.providers.fake_extractor import FakeExtractor
@@ -52,15 +50,20 @@ class TestFakeExtractor:
 
     async def test_returns_empty_by_default(self):
         extractor = FakeExtractor()
-        results = await extractor.extract(messages=[{"role": "user", "content": "Hello"}], subject_id="user-1")
+        results = await extractor.extract(
+            messages=[{"role": "user", "content": "Hello"}], subject_id="user-1"
+        )
         assert results == []
 
     async def test_returns_configured_response(self):
         candidates = [
             MemoryCandidate(
-                memory_type="preference", subject_key="code",
-                predicate="code_language", value="Python",
-                source_message_id="msg-1", evidence_text="Python",
+                memory_type="preference",
+                subject_key="code",
+                predicate="code_language",
+                value="Python",
+                source_message_id="msg-1",
+                evidence_text="Python",
             ),
         ]
         extractor = FakeExtractor(responses={"Hello": candidates})
@@ -75,9 +78,12 @@ class TestFakeExtractor:
         extractor = FakeExtractor()
         candidates = [
             MemoryCandidate(
-                memory_type="preference", subject_key="code",
-                predicate="code_language", value="Rust",
-                source_message_id="msg-1", evidence_text="Rust",
+                memory_type="preference",
+                subject_key="code",
+                predicate="code_language",
+                value="Rust",
+                source_message_id="msg-1",
+                evidence_text="Rust",
             ),
         ]
         extractor.set_response("Hello", candidates)
@@ -95,7 +101,13 @@ class TestRuleBasedExtractor:
     async def test_extract_preference_prefiero(self):
         extractor = RuleBasedExtractor()
         results = await extractor.extract(
-            messages=[{"role": "user", "content": "Prefiero que los ejemplos sean en TypeScript.", "id": "msg-1"}],
+            messages=[
+                {
+                    "role": "user",
+                    "content": "Prefiero que los ejemplos sean en TypeScript.",
+                    "id": "msg-1",
+                }
+            ],
             subject_id="user-1",
         )
         assert len(results) >= 1
@@ -106,7 +118,9 @@ class TestRuleBasedExtractor:
     async def test_extract_code_language(self):
         extractor = RuleBasedExtractor()
         results = await extractor.extract(
-            messages=[{"role": "user", "content": "Mi lenguaje favorito es Python.", "id": "msg-1"}],
+            messages=[
+                {"role": "user", "content": "Mi lenguaje favorito es Python.", "id": "msg-1"}
+            ],
             subject_id="user-1",
         )
         assert len(results) == 1

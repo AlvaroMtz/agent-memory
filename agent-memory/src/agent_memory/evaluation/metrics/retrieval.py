@@ -57,16 +57,10 @@ def ndcg_at_k(
         return 0.0
 
     effective_scores = relevance_scores[:k]
-    dcg = sum(
-        (2**s - 1) / math.log2(i + 2)
-        for i, s in enumerate(effective_scores)
-    )
+    dcg = sum((2**s - 1) / math.log2(i + 2) for i, s in enumerate(effective_scores))
 
     ideal = sorted(relevance_scores, reverse=True)[:k]
-    idcg = sum(
-        (2**s - 1) / math.log2(i + 2)
-        for i, s in enumerate(ideal)
-    )
+    idcg = sum((2**s - 1) / math.log2(i + 2) for i, s in enumerate(ideal))
 
     if idcg == 0:
         return 0.0

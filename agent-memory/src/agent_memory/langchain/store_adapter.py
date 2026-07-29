@@ -7,12 +7,12 @@ with tenant isolation via key prefixes.
 
 from __future__ import annotations
 
-import json
 import logging
-from typing import Any, AsyncIterator, Iterable, Iterator
+from collections.abc import AsyncIterator, Iterable
+from typing import Any
 
 from agent_memory.constants import DEFAULT_TOP_K
-from agent_memory.domain.memory import MemoryRecord, MemoryVersion
+from agent_memory.domain.memory import MemoryRecord
 from agent_memory.ports.backend import MemoryBackend
 
 logger = logging.getLogger(__name__)
@@ -135,8 +135,6 @@ class AgentMemoryStoreAdapter:
             # Try to get from backend as a memory record
             memory_id = self._parse_key(full_key)
             if memory_id is not None:
-                from uuid import UUID
-
                 record = await self.backend.get_memory(
                     memory_id, context=_make_tenant_ctx(self.tenant_id)
                 )
@@ -156,10 +154,7 @@ class AgentMemoryStoreAdapter:
                 if m.status == "deleted":
                     continue
                 # Match by subject_key (short form) or predicate (full key with namespace)
-                if (
-                    m.subject_key == self._extract_subject_key(full_key)
-                    or m.predicate == full_key
-                ):
+                if m.subject_key == self._extract_subject_key(full_key) or m.predicate == full_key:
                     return self._serialize(m)
         except Exception:
             logger.exception("Failed to list memories for key %s", full_key)
@@ -207,8 +202,6 @@ class AgentMemoryStoreAdapter:
         full_key = self._build_key(key)
 
         try:
-            from agent_memory.ports.backend import MemoryBackend
-
             # List memories and find the one matching this key, then update status
             memories = await self.backend.list_memories(
                 tenant_id=self.tenant_id,
@@ -225,9 +218,7 @@ class AgentMemoryStoreAdapter:
         except Exception:
             logger.exception("Failed to delete key %s", full_key)
 
-    async def _keys_with_prefix(
-        self, prefix: str
-    ) -> AsyncIterator[str]:
+    async def _keys_with_prefix(self, prefix: str) -> AsyncIterator[str]:
         """Yield keys matching a prefix."""
         try:
             memories = await self.backend.list_memories(
@@ -250,9 +241,7 @@ class AgentMemoryStoreAdapter:
             return f"{self.tenant_id}:{self.subject_id}:{self.namespace}:{key}"
         return f"{self.tenant_id}:{self.subject_id}:{key}"
 
-    def _build_prefix(
-        self, tenant_id: str, subject_id: str
-    ) -> str:
+    def _build_prefix(self, tenant_id: str, subject_id: str) -> str:
         """Build a key prefix for filtering."""
         return f"{tenant_id}:{subject_id}"
 
@@ -270,7 +259,6 @@ class AgentMemoryStoreAdapter:
 
     def _serialize(self, record: MemoryRecord) -> dict[str, Any]:
         """Serialize a MemoryRecord to a dict."""
-        from agent_memory.domain.memory import MemoryVersion
 
         return {
             "id": str(record.id),

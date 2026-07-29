@@ -8,10 +8,10 @@ from pathlib import Path
 
 import yaml
 
-from agent_memory.domain.candidate import MemoryCandidate
 from agent_memory.client import MemoryClient
 from agent_memory.context import MemoryContext, TenantContext
 from agent_memory.domain.audit import AuditQuery
+from agent_memory.domain.candidate import MemoryCandidate
 from agent_memory.domain.consent import ConsentGrant
 from agent_memory.evaluation.schema import (
     EvaluationScenario,
@@ -161,13 +161,20 @@ async def run_scenario(
     if scenario.expected_candidates:
         for i, expected in enumerate(scenario.expected_candidates):
             matching = [
-                c for c in extracted_candidates
+                c
+                for c in extracted_candidates
                 if (expected.memory_type is None or c.memory_type == expected.memory_type)
                 and (expected.subject_key is None or c.subject_key == expected.subject_key)
                 and (expected.predicate is None or c.predicate == expected.predicate)
                 and (expected.value is None or c.value == expected.value)
-                and (expected.source_message_id is None or c.source_message_id == expected.source_message_id)
-                and (expected.explicitly_stated is None or c.explicitly_stated == expected.explicitly_stated)
+                and (
+                    expected.source_message_id is None
+                    or c.source_message_id == expected.source_message_id
+                )
+                and (
+                    expected.explicitly_stated is None
+                    or c.explicitly_stated == expected.explicitly_stated
+                )
                 and (expected.sensitivity is None or c.sensitivity == expected.sensitivity)
             ]
             if not matching:
@@ -187,7 +194,8 @@ async def run_scenario(
         memories_found = len(all_memories)
         for i, expected in enumerate(scenario.expected_memories):
             matching_memories = [
-                memory for memory in all_memories
+                memory
+                for memory in all_memories
                 if (expected.memory_type is None or memory.memory_type == expected.memory_type)
                 and (expected.subject_key is None or memory.subject_key == expected.subject_key)
                 and (expected.predicate is None or memory.predicate == expected.predicate)
@@ -214,7 +222,9 @@ async def run_scenario(
                 query=expected_query.description or "",
                 filters={
                     "purpose": purpose,
-                    "memory_types": [expected_query.memory_type] if expected_query.memory_type else None,
+                    "memory_types": [expected_query.memory_type]
+                    if expected_query.memory_type
+                    else None,
                 },
             )
             count = result.total_count
@@ -233,7 +243,9 @@ async def run_scenario(
     if not errors and scenario.expected_audit:
         audit_events = await active_backend.query_audit(AuditQuery(tenant_id=tenant_id, limit=500))
         for i, expected in enumerate(scenario.expected_audit):
-            if expected.action and not any(event.action == expected.action for event in audit_events):
+            if expected.action and not any(
+                event.action == expected.action for event in audit_events
+            ):
                 errors.append(f"Expected audit event #{i} action={expected.action} not found")
 
     duration_ms = (time.perf_counter() - start) * 1000
@@ -274,7 +286,8 @@ async def _apply_setup_actions(
     status_actions = list(scenario.setup_actions)
     if not status_actions:
         status_actions = [
-            expected for expected in scenario.expected_memories
+            expected
+            for expected in scenario.expected_memories
             if expected.status and expected.status != "active"
         ]
     if not status_actions:
