@@ -188,7 +188,7 @@ class TestMemoryClient:
         with patch(
             "agent_memory.client.retrieve", new_callable=AsyncMock, return_value=mock_result
         ):
-            result = await client.retrieve("test", context)
+            result = await client.retrieve(context=context, query="test")
             assert result.query == "test"
 
     @pytest.mark.asyncio
@@ -295,7 +295,7 @@ class TestMemoryClient:
     async def test_list_memories(self, client: MemoryClient, context: MemoryContext):
         """list_memories delegates to backend."""
         client._backend.list_memories = AsyncMock(return_value=[])
-        result = await client.list_memories(context, memory_type="preference")
+        result = await client.list_memories(context=context, memory_type="preference")
         assert result == []
         client._backend.list_memories.assert_called_once()
 
@@ -306,7 +306,7 @@ class TestMemoryClient:
 
         memory_id = uuid4()
         client._backend.update_memory_status = AsyncMock()
-        await client.forget(memory_id, context)
+        await client.forget(context=context, memory_id=memory_id)
         call_kwargs = client._backend.update_memory_status.call_args[1]
         assert call_kwargs["memory_id"] == memory_id
         assert call_kwargs["status"] == "deleted"

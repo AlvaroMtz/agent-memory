@@ -6,7 +6,9 @@ score fusion → rerank → consent filter → token budget → return.
 
 from __future__ import annotations
 
+import json
 import logging
+import base64
 from typing import Any
 
 from agent_memory.constants import MemoryStatusEnum
@@ -14,6 +16,7 @@ from agent_memory.domain.retrieval import RetrievalResult, RetrievedMemory
 from agent_memory.ports.backend import MemoryBackend
 from agent_memory.ports.consent import ConsentProvider
 from agent_memory.ports.embedder import EmbeddingProvider
+from agent_memory.ports.encryption import EncryptionContext, EncryptionProvider
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +29,9 @@ async def retrieve(
     backend: MemoryBackend | None = None,
     embedder: EmbeddingProvider | None = None,
     consent: ConsentProvider | None = None,
+    limit: int | None = None,
     max_tokens: int = 1200,
+    encryption: EncryptionProvider | None = None,
 ) -> RetrievalResult:
     """Run the full hybrid retrieval pipeline (async).
 
@@ -47,7 +52,7 @@ async def retrieve(
     memory_types: list[str] | None = filters.get("memory_types")
     statuses: list[str] | None = filters.get("statuses", [MemoryStatusEnum.ACTIVE.value])
     purpose: str | None = filters.get("purpose")
-    limit: int = int(filters.get("limit", 50))
+    effective_limit: int = limit if limit is not None else int(filters.get("limit", 50))
 
     # Fail closed: without an active read consent for this purpose, do not search,
     # do not compute embeddings, and do not decrypt/return anything.
@@ -88,7 +93,7 @@ async def retrieve(
                 statuses=statuses,
                 query_vector=query_vector,
                 purpose=purpose,
-                limit=limit,
+                limit=effective_limit,
             )
             for r in vec_results:
                 rid = str(r.id)
@@ -108,7 +113,7 @@ async def retrieve(
                 statuses=statuses,
                 query_vector=None,
                 purpose=purpose,
-                limit=limit,
+                limit=effective_limit,
             )
             for r in lex_results:
                 rid = str(r.id)
@@ -129,7 +134,7 @@ async def retrieve(
                 statuses=statuses,
                 query_vector=query_vector,
                 purpose=purpose,
-                limit=limit,
+                limit=effective_limit,
             )
             all_results = fallback
         except Exception:
@@ -147,7 +152,16 @@ async def retrieve(
     # ── Token budget ───────────────────────────────────────────────────
     budget_results = apply_token_budget(all_results, max_tokens)
 
-    total_tokens = await _count_tokens(budget_results)
+    # ── Decrypt values ─────────────────────────────────────────────────
+    decrypted_results: list[RetrievedMemory] = []
+    for r in budget_results:
+        if _is_encrypted_json(r.value):
+            r.value = _decrypt_value(r.value, encryption, tenant_id) if encryption else r.value
+        if _is_encrypted_json(r.evidence_text):
+            r.evidence_text = _decrypt_evidence(r.evidence_text, encryption, tenant_id) if encryption else r.evidence_text
+        decrypted_results.append(r)
+
+    total_tokens = await _count_tokens(decrypted_results)
 
     return RetrievalResult(
         query=effective_query,
@@ -156,6 +170,77 @@ async def retrieve(
         token_count=total_tokens,
         token_budget=max_tokens,
     )
+
+def _is_encrypted_json(value: Any) -> bool:
+    """Check if a value looks like encrypted JSON."""
+    if isinstance(value, dict):
+        return value.get("encrypted") is True or value.get("encrypted") == "true"
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return isinstance(parsed, dict) and parsed.get("encrypted") is True
+        except (json.JSONDecodeError, TypeError):
+            return False
+    return False
+
+
+def _decrypt_value(value: Any, encryption: EncryptionProvider, tenant_id: str) -> Any:
+    """Decrypt an encrypted value. Returns raw value if decryption fails (fail-closed)."""
+    if encryption is None:
+        return value
+
+    from agent_memory.ports.encryption import EncryptedPayload
+
+    try:
+        if _is_encrypted_json(value):
+            payload_data = value if isinstance(value, dict) else json.loads(value)
+            ciphertext = base64.b64decode(payload_data["ciphertext"])
+            nonce = base64.b64decode(payload_data["nonce"]) if payload_data.get("nonce") else None
+            payload = EncryptedPayload(
+                ciphertext=ciphertext,
+                nonce=nonce,
+                algorithm=payload_data.get("algorithm", "aes-256-gcm"),
+                key_id=payload_data.get("key_id"),
+            )
+            ctx = EncryptionContext(tenant_id=tenant_id, purpose=None, key_id=payload.key_id)
+            plaintext = encryption.decrypt(payload, context=ctx)
+            return json.loads(plaintext.decode("utf-8"))
+    except Exception:
+        pass
+    return value
+
+
+def _decrypt_evidence(
+    evidence: str | None,
+    encryption: EncryptionProvider,
+    tenant_id: str,
+) -> str | None:
+    """Decrypt evidence text. Returns None if no evidence or decryption fails."""
+    if evidence is None:
+        return None
+
+    if encryption is None:
+        return evidence
+
+    from agent_memory.ports.encryption import EncryptedPayload
+
+    try:
+        if _is_encrypted_json(evidence):
+            payload_data = json.loads(evidence)
+            ciphertext = base64.b64decode(payload_data["ciphertext"])
+            nonce = base64.b64decode(payload_data["nonce"]) if payload_data.get("nonce") else None
+            payload = EncryptedPayload(
+                ciphertext=ciphertext,
+                nonce=nonce,
+                algorithm=payload_data.get("algorithm", "aes-256-gcm"),
+                key_id=payload_data.get("key_id"),
+            )
+            ctx = EncryptionContext(tenant_id=tenant_id, purpose=None, key_id=payload.key_id)
+            plaintext = encryption.decrypt(payload, context=ctx)
+            return plaintext.decode("utf-8")
+    except Exception:
+        pass
+    return evidence
 
 
 def score_fusion(

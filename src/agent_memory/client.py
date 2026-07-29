@@ -425,34 +425,31 @@ class MemoryClient:
 
     async def retrieve(
         self,
-        query: str | None = None,
-        context: MemoryContext | None = None,
-        filters: dict[str, Any] | None = None,
+        *,
+        context: MemoryContext,
+        query: str,
         limit: int | None = None,
-        max_tokens: int = 1200,
     ) -> RetrievalResult:
         """Run the full retrieval pipeline.
 
-        Returns a ``RetrievalResult`` with up to *max_tokens* tokens of results.
+        **Signature**: ``retrieve(*, context, query, limit=None)``
+
+        Args:
+            context: Memory context. Must come from authenticated app context only.
+            query: Search query string.
+            limit: Maximum number of results.
         """
-        if context is None or query is None:
-            raise TypeError("retrieve requires query and context")
-
-        filters = dict(filters or {})
-        filters.setdefault("purpose", context.purpose)
-        if limit is not None:
-            filters["limit"] = limit
-
         result = await retrieve(
             tenant_id=context.tenant_id,
             subject_id=context.subject_id,
             query=query,
-            filters=filters,
+            filters={"purpose": context.purpose},
             backend=self._backend,
             embedder=self._embedder,
             consent=self._consent,
-            max_tokens=max_tokens,
-        )
+            limit=limit,
+            encryption=self._encryption,
+            )
         await self._audit.log_action(
             tenant_id=context.tenant_id,
             actor_id=context.actor_id,
@@ -469,13 +466,17 @@ class MemoryClient:
 
     async def list_memories(
         self,
+        *,
         context: MemoryContext,
         memory_type: str | None = None,
-        status: str | None = None,
+        status: str | None = "active",
         limit: int = 100,
         offset: int = 0,
     ) -> list[MemoryRecord]:
-        """List memories for a subject, filtered by type and status."""
+        """List memories for a subject, filtered by type and status.
+
+        Defaults to active memories when *status* is omitted.
+        """
         return await self._backend.list_memories(
             tenant_id=context.tenant_id,
             subject_id=context.subject_id,
@@ -490,12 +491,14 @@ class MemoryClient:
 
     async def forget(
         self,
-        memory_id: UUID | None = None,
-        context: MemoryContext | None = None,
+        *,
+        context: MemoryContext,
+        memory_id: UUID,
     ) -> ForgetResult:
-        """Soft-delete a memory by ID."""
-        if context is None or memory_id is None:
-            raise TypeError("forget requires memory_id and context")
+        """Soft-delete a memory by ID.
+
+        **Signature**: ``forget(*, context, memory_id)``
+        """
         tenant_ctx = TenantContext(tenant_id=context.tenant_id, actor_id=context.actor_id)
         await self._backend.update_memory_status(
             memory_id=memory_id,

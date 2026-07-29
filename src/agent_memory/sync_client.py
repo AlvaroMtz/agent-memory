@@ -70,15 +70,18 @@ class SyncMemoryClient:
 
     def retrieve(
         self,
-        query: str,
+        *,
         context: MemoryContext,
-        filters: dict[str, Any] | None = None,
-        max_tokens: int = 1200,
+        query: str,
+        limit: int | None = None,
     ) -> RetrievalResult:
-        """Run the full retrieval pipeline."""
+        """Run the full retrieval pipeline.
+
+        **Signature**: ``retrieve(*, context, query, limit=None)``
+        """
         return asyncio.run(
             self._client.retrieve(
-                context=context, query=query, filters=filters, max_tokens=max_tokens
+                context=context, query=query, limit=limit
             )
         )
 
@@ -108,11 +111,15 @@ class SyncMemoryClient:
 
     def forget(
         self,
-        memory_id: UUID | None = None,
-        context: MemoryContext | None = None,
+        *,
+        context: MemoryContext,
+        memory_id: UUID,
     ) -> ForgetResult:
-        """Soft-delete a memory by ID."""
-        return asyncio.run(self._client.forget(memory_id, context))
+        """Soft-delete a memory by ID.
+
+        **Signature**: ``forget(*, context, memory_id)``
+        """
+        return asyncio.run(self._client.forget(context=context, memory_id=memory_id))
 
     # ── consent ────────────────────────────────────────────────────────────────
 

@@ -141,7 +141,7 @@ class TestSyncMemoryClient:
         with patch(
             "agent_memory.client.retrieve", new_callable=AsyncMock, return_value=mock_result
         ):
-            result = client.retrieve("test", context)
+            result = client.retrieve(context=context, query="test")
             assert result.query == "test"
 
     def test_grant_consent(self, client: SyncMemoryClient, context: MemoryContext):
