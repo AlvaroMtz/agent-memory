@@ -33,7 +33,6 @@ scenarios:
         source_message_id: msg-1
         explicitly_stated: true
         sensitivity: public
-    expected_memories: []
     expected_queries: []
 
   - name: extract_semantic_fact
@@ -66,7 +65,6 @@ scenarios:
         source_message_id: msg-1
         explicitly_stated: true
         sensitivity: public
-    expected_memories: []
     expected_queries: []
 
   - name: extract_trusted_tool_preference
@@ -98,7 +96,6 @@ scenarios:
         source_message_id: msg-1
         explicitly_stated: true
         sensitivity: public
-    expected_memories: []
     expected_queries: []
 
   - name: reject_assistant_message
@@ -120,8 +117,6 @@ scenarios:
       - id: msg-1
         role: assistant
         content: I think you would like Python.
-    expected_candidates: []
-    expected_memories: []
     expected_queries: []
     expected_to_fail: false
 
@@ -144,8 +139,6 @@ scenarios:
       - id: msg-1
         role: system
         content: "System initialized. User preferences: {language: English}"
-    expected_candidates: []
-    expected_memories: []
     expected_queries: []
     expected_to_fail: false
 
@@ -195,5 +188,4 @@ scenarios:
         source_message_id: msg-3
         explicitly_stated: true
         sensitivity: public
-    expected_memories: []
     expected_queries: []

@@ -185,6 +185,13 @@ PATTERNS: list[tuple[re.Pattern, str, str, str, Any]] = [
         lambda m: m.group(1).strip(),
     ),
     (
+        re.compile(r"i\s+work\s+at\s+([\w\s.]+)", re.IGNORECASE),
+        "semantic",
+        "employment",
+        "employer",
+        lambda m: m.group(1).strip().rstrip("."),
+    ),
+    (
         re.compile(r"i\s+work\s+as\s+an?\s+(\w+)", re.IGNORECASE),
         "semantic",
         "employment",

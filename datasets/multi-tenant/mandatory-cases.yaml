@@ -14,6 +14,9 @@ scenarios:
     expected_accepted_candidates:
       - {memory_type: preference, subject_key: code, predicate: code_language, value: Python}
     expected_memories: [{memory_type: preference, subject_key: code, predicate: code_language, status: active}]
+    tenant_operations:
+      - {operation: cross_read, tenant_id: t2, expected_outcome: denied}
+    expected_security_counters: {cross_tenant_leakage: 0}
 
   # 2. Cross-tenant read should fail
   - name: tenant-cross-read-denied
@@ -27,6 +30,9 @@ scenarios:
     expected_accepted_candidates:
       - {memory_type: preference, subject_key: code, predicate: code_language, value: Python}
     expected_memories: [{memory_type: preference, subject_key: code, predicate: code_language, status: active}]
+    tenant_operations:
+      - {operation: cross_read, tenant_id: t2, expected_outcome: denied}
+    expected_security_counters: {cross_tenant_leakage: 0}
 
   # 3. Cross-tenant write should fail
   - name: tenant-cross-write-denied
@@ -39,6 +45,10 @@ scenarios:
       - {memory_type: preference, subject_key: code, predicate: code_language, value: TypeScript}
     expected_accepted_candidates:
       - {memory_type: preference, subject_key: code, predicate: code_language, value: TypeScript}
+    expected_memories: [{memory_type: preference, subject_key: code, predicate: code_language, status: active}]
+    tenant_operations:
+      - {operation: cross_write, tenant_id: t2, predicate: code_language, expected_outcome: denied}
+    expected_security_counters: {unauthorized_write: 0}
 
   # 4. Cross-tenant update should fail
   - name: tenant-cross-update-denied
@@ -51,6 +61,10 @@ scenarios:
       - {memory_type: preference, subject_key: code, predicate: code_language, value: Java}
     expected_accepted_candidates:
       - {memory_type: preference, subject_key: code, predicate: code_language, value: Java}
+    expected_memories: [{memory_type: preference, subject_key: code, predicate: code_language, status: active}]
+    tenant_operations:
+      - {operation: cross_update, tenant_id: t2, predicate: code_language, expected_outcome: denied}
+    expected_security_counters: {unauthorized_update: 0}
 
   # 5. Cross-tenant delete should fail
   - name: tenant-cross-delete-denied
@@ -63,6 +77,10 @@ scenarios:
       - {memory_type: preference, subject_key: code, predicate: code_language, value: Rust}
     expected_accepted_candidates:
       - {memory_type: preference, subject_key: code, predicate: code_language, value: Rust}
+    expected_memories: [{memory_type: preference, subject_key: code, predicate: code_language, status: active}]
+    tenant_operations:
+      - {operation: cross_delete, tenant_id: t2, predicate: code_language, expected_outcome: denied}
+    expected_security_counters: {unauthorized_delete: 0}
 
   # 6. Missing tenant context
   - name: tenant-missing-tenant-denied
@@ -76,6 +94,9 @@ scenarios:
     expected_accepted_candidates:
       - {memory_type: preference, subject_key: code, predicate: code_language, value: Python}
     expected_memories: [{memory_type: preference, subject_key: code, predicate: code_language, status: active}]
+    tenant_operations:
+      - {operation: missing_tenant, expected_outcome: denied}
+    expected_security_counters: {cross_tenant_leakage: 0}
 
   # 7. Tenant from user content ignored
   - name: tenant-from-user-content-ignored
@@ -84,8 +105,8 @@ scenarios:
     consent: {purpose: general, allow_write: true, allow_read: true, allowed_memory_types: [preference], allowed_sensitivity: [public, internal]}
     messages:
       - {id: m1, role: user, content: "I am in tenant X."}
-    expected_candidates: []
     expected_accepted_candidates: []
+    expected_memories: []
 
   # 8. Tenant from tool call ignored
   - name: tenant-from-tool-call-ignored
@@ -95,8 +116,8 @@ scenarios:
     messages:
       - {id: m1, role: user, content: "Call the tool."}
       - {id: m2, role: assistant, content: "Tool returned: tenant=other_tenant, data=sensitive"}
-    expected_candidates: []
     expected_accepted_candidates: []
+    expected_memories: []
 
   # 9. Absent RLS context
   - name: tenant-rls-context-absent-denied
@@ -110,3 +131,6 @@ scenarios:
     expected_accepted_candidates:
       - {memory_type: preference, subject_key: code, predicate: code_language, value: Python}
     expected_memories: [{memory_type: preference, subject_key: code, predicate: code_language, status: active}]
+    tenant_operations:
+      - {operation: missing_tenant, expected_outcome: denied}
+    expected_security_counters: {cross_tenant_leakage: 0}

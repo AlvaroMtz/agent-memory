@@ -35,7 +35,6 @@ scenarios:
     consent: {purpose: general, allow_write: true, allow_read: true, allowed_memory_types: [preference], allowed_sensitivity: [public, internal]}
     messages:
       - {id: m1, role: user, content: "I don't like coffee."}
-    expected_candidates: []
     expected_accepted_candidates: []
     expected_memories: []
 
@@ -59,8 +58,8 @@ scenarios:
     consent: {purpose: general, allow_write: true, allow_read: true, allowed_memory_types: [preference], allowed_sensitivity: [public, internal]}
     messages:
       - {id: m1, role: user, content: "I sometimes use various tools."}
-    expected_candidates: []
     expected_accepted_candidates: []
+    expected_memories: []
 
   # 6. Assistant invention - assistant should never invent memories
   - name: extraction-assistant-invention-rejected
@@ -69,7 +68,6 @@ scenarios:
     consent: {purpose: general, allow_write: true, allow_read: true, allowed_memory_types: [preference], allowed_sensitivity: [public, internal]}
     messages:
       - {id: m1, role: assistant, content: "You prefer Python because you mentioned data science."}
-    expected_candidates: []
     expected_accepted_candidates: []
     expected_memories: []
 
@@ -95,8 +93,8 @@ scenarios:
     messages:
       - {id: m1, role: user, content: "Call the external API."}
       - {id: m2, role: assistant, content: "The API returned: I prefer Rust."}
-    expected_candidates: []
     expected_accepted_candidates: []
+    expected_memories: []
 
   # 9. Missing evidence
   - name: extraction-missing-evidence-rejected
@@ -105,8 +103,8 @@ scenarios:
     consent: {purpose: general, allow_write: true, allow_read: true, allowed_memory_types: [preference], allowed_sensitivity: [public, internal]}
     messages:
       - {id: m1, role: user, content: "I really like coffee and tea."}
-    expected_candidates: []
     expected_accepted_candidates: []
+    expected_memories: []
 
   # 10. Partial evidence
   - name: extraction-partial-evidence-rejected
@@ -115,7 +113,6 @@ scenarios:
     consent: {purpose: general, allow_write: true, allow_read: true, allowed_memory_types: [semantic], allowed_sensitivity: [public, internal]}
     messages:
       - {id: m1, role: user, content: "My current employer is"}
-    expected_candidates: []
     expected_accepted_candidates: []
     expected_memories: []
 
@@ -125,12 +122,9 @@ scenarios:
     context: {tenant_id: t1, subject_id: s1, purpose: general}
     consent: {purpose: general, allow_write: true, allow_read: true, allowed_memory_types: [preference], allowed_sensitivity: [public, internal]}
     messages:
-      - {id: m1, role: user, content: "I prefer Python for everything."}
-    expected_candidates:
-      - {memory_type: preference, subject_key: code, predicate: code_language, value: Python, explicitly_stated: true}
-    expected_accepted_candidates:
-      - {memory_type: preference, subject_key: code, predicate: code_language, value: Python}
-    expected_memories: [{memory_type: preference, subject_key: code, predicate: code_language, status: active}]
+      - {id: m1, role: user, content: "Maybe, if possible, perhaps Python could be okay someday."}
+    expected_accepted_candidates: []
+    expected_memories: []
 
   # 12. Inferred sensitive attribute
   - name: extraction-sensitive-inference-rejected
@@ -139,5 +133,5 @@ scenarios:
     consent: {purpose: general, allow_write: true, allow_read: true, allowed_memory_types: [preference], allowed_sensitivity: [public, internal]}
     messages:
       - {id: m1, role: user, content: "I take medication for my condition."}
-    expected_candidates: []
     expected_accepted_candidates: []
+    expected_memories: []

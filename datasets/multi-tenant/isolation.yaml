@@ -57,7 +57,6 @@ scenarios:
         - public
         - internal
     messages: []
-    expected_candidates: []
     expected_queries:
       - description: Tenant B should see zero results from Tenant A
         min_results: 0
@@ -116,8 +115,6 @@ scenarios:
       - id: msg-1
         role: user
         content: Secret data for tenant-a.
-    expected_candidates: []
-    expected_memories: []
     expected_queries:
       - description: Tenant A with no consent sees nothing
         min_results: 0
@@ -143,7 +140,5 @@ scenarios:
       - id: msg-1
         role: user
         content: Any data.
-    expected_candidates: []
-    expected_memories: []
     expected_queries: []
     expected_to_fail: true

@@ -109,7 +109,7 @@ scenarios:
         role: user
         content: "I prefer Python."
 
-    expected_candidates: []
+    expected_accepted_candidates: []
     expected_memories: []
     expected_audit:
       - action: "memory.candidate_rejected"
@@ -179,6 +179,6 @@ scenarios:
         role: user
         content: I like Python.
 
-    expected_candidates: []
+    expected_accepted_candidates: []
     expected_memories: []
     expected_to_fail: true

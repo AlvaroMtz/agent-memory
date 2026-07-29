@@ -162,6 +162,11 @@ scenarios:
         source_message_id: msg-2
         explicitly_stated: true
         sensitivity: public
+    expected_memories:
+      - memory_type: semantic
+        subject_key: employment
+        predicate: employer
+        status: pending_review
     expected_queries: []
 
   # 5. Trusted tool vs user
@@ -229,9 +234,28 @@ scenarios:
     messages:
       - id: msg-1
         role: user
-        content: "I like fast, sometimes I like slow responses."
-    expected_candidates: []
-    expected_queries: []
+        content: My current employer is Acme Corp.
+      - id: msg-2
+        role: user
+        content: I work for Beta Inc now.
+    expected_candidates:
+      - memory_type: semantic
+        subject_key: employment
+        predicate: employer
+        value: Beta Inc
+        source_message_id: msg-2
+        explicitly_stated: true
+        sensitivity: public
+    expected_memories:
+      - memory_type: semantic
+        subject_key: employment
+        predicate: employer
+        status: pending_review
+    expected_queries:
+      - description: pending review memories are not retrievable
+        query: Beta Inc
+        memory_type: semantic
+        max_results: 0
 
   # 7. Temporal change (valid over time)
   - name: contradiction-temporal-change-valid
