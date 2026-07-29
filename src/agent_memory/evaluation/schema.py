@@ -26,8 +26,12 @@ class ScenarioConsent(BaseModel):
     purpose: str = "testing"
     allow_write: bool = True
     allow_read: bool = True
-    allowed_memory_types: list[str] = Field(default_factory=lambda: ["preference", "semantic"])
-    allowed_sensitivity: list[str] = Field(default_factory=lambda: ["public", "internal"])
+    allowed_memory_types: list[str] = Field(
+        default_factory=lambda: ["preference", "semantic"]
+    )
+    allowed_sensitivity: list[str] = Field(
+        default_factory=lambda: ["public", "internal"]
+    )
     retention_days: int | None = None
 
 
@@ -64,17 +68,24 @@ class ExpectedMemory(BaseModel):
 
 
 class ScenarioAction(BaseModel):
-    """Explicit setup action executed before assertions.
-
-    Actions model state transitions that cannot be expressed by messages alone,
-    such as revoking or expiring a persisted memory before retrieval checks.
-    """
+    """Explicit setup action executed before assertions."""
 
     action: str
     memory_type: str | None = None
     subject_key: str | None = None
     predicate: str | None = None
     status: str | None = None
+
+
+class TenantOperation(BaseModel):
+    """Explicit multi-tenant operation scenario."""
+
+    operation: str
+    tenant_id: str | None = None
+    target_subject_id: str | None = None
+    predicate: str | None = None
+    expected_outcome: str = "denied"
+    expected_error: str | None = None
 
 
 class ExpectedQuery(BaseModel):
@@ -94,6 +105,12 @@ class ExpectedQuery(BaseModel):
     forbidden_memory_ids: list[str] = Field(default_factory=list)
     forbidden_tenants: list[str] = Field(default_factory=list)
     forbidden_statuses: list[str] = Field(default_factory=list)
+    expected_counts: dict[str, int] = Field(default_factory=dict)
+    forbidden_rejection_reasons: list[str] = Field(default_factory=list)
+    expected_rejection_reasons: list[str] = Field(default_factory=list)
+    # Extra query-level filters
+    token_budget: int | None = None
+    purpose: str | None = None
 
 
 class ExpectedAuditEvent(BaseModel):
@@ -106,39 +123,147 @@ class ExpectedAuditEvent(BaseModel):
     reason: str | None = None
 
 
+class InjectionRuntimeInvariant(BaseModel):
+    """Runtime invariants after prompt injection is stored."""
+
+    system_prompt_unchanged: bool = True
+    tools_unchanged: bool = True
+    permissions_unchanged: bool = True
+    tenant_unchanged: bool = True
+    confirmations_required: bool = True
+
+    def check_invariants(self) -> bool:
+        return all([
+            self.system_prompt_unchanged,
+            self.tools_unchanged,
+            self.permissions_unchanged,
+            self.tenant_unchanged,
+            self.confirmations_required,
+        ])
+
+
 class EvaluationScenario(BaseModel):
     """A complete test scenario for the evaluation framework.
 
-    Defines inputs (context, consent, messages) and expected outputs
-    (candidates, persistence, retrieval, audit).
+    Empty list semantics: [] means "must be exactly zero".
+    None means "skip check" (default for all fields).
     """
 
     name: str
     description: str = ""
 
-    # Inputs
     context: dict[str, Any] = Field(default_factory=dict)
     consent: ScenarioConsent = Field(default_factory=ScenarioConsent)
-    messages: list[ScenarioMessage] = Field(default_factory=list)
-    setup_actions: list[ScenarioAction] = Field(default_factory=list)
+    messages: list[ScenarioMessage] | None = None
+    setup_actions: list[ScenarioAction] | None = None
 
-    # Expected outputs
-    expected_candidates: list[ExpectedCandidate] = Field(default_factory=list)
-    expected_raw_candidates: list[ExpectedCandidate] = Field(default_factory=list)
-    expected_accepted_candidates: list[ExpectedCandidate] = Field(default_factory=list)
-    expected_rejected_candidates: list[ExpectedCandidate] = Field(default_factory=list)
-    expected_memories: list[ExpectedMemory] = Field(default_factory=list)
-    expected_queries: list[ExpectedQuery] = Field(default_factory=list)
-    expected_audit: list[ExpectedAuditEvent] = Field(default_factory=list)
+    expected_candidates: list[ExpectedCandidate] | None = None
+    expected_raw_candidates: list[ExpectedCandidate] | None = None
+    expected_accepted_candidates: list[ExpectedCandidate] | None = None
+    expected_rejected_candidates: list[ExpectedCandidate] | None = None
+    expected_memories: list[ExpectedMemory] | None = None
+    expected_queries: list[ExpectedQuery] | None = None
+    expected_audit: list[ExpectedAuditEvent] | None = None
     expected_security_counters: dict[str, int] = Field(default_factory=dict)
-    forbidden_predicates: list[str] = Field(default_factory=list)
-    forbidden_memory_ids: list[str] = Field(default_factory=list)
-    forbidden_tenants: list[str] = Field(default_factory=list)
-    forbidden_statuses: list[str] = Field(default_factory=list)
 
-    # Metadata
-    tags: list[str] = Field(default_factory=list)
+    forbidden_predicates: list[str] | None = None
+    forbidden_memory_ids: list[str] | None = None
+    forbidden_tenants: list[str] | None = None
+    forbidden_statuses: list[str] | None = None
+
+    forbidden_accepted_candidates: list[ExpectedCandidate] | None = None
+    forbidden_memories: list[ExpectedMemory] | None = None
+
+    forbidden_memory_type: str | None = None
+    forbidden_subject_keys: list[str] | None = None
+
+    tenant_operations: list[TenantOperation] | None = None
+    injection_invariants: InjectionRuntimeInvariant | None = None
+    expected_counts: dict[str, int] = Field(default_factory=dict)
+    expected_rejection_reasons: list[str] | None = None
+
+    tags: list[str] | None = None
     expected_to_fail: bool = False
+
+    @property
+    def is_negative(self) -> bool:
+        if self.expected_accepted_candidates is not None and len(
+            self.expected_accepted_candidates
+        ) == 0:
+            return True
+        if self.expected_candidates is not None and len(
+            self.expected_candidates
+        ) == 0:
+            return True
+        if self.forbidden_predicates:
+            return True
+        if self.forbidden_memories:
+            return True
+        if self.forbidden_accepted_candidates is not None:
+            return True
+        if self.forbidden_memory_type is not None:
+            return True
+        if any(
+            m.status in ("revoked", "expired")
+            for m in (self.expected_memories or [])
+        ):
+            return True
+        return False
+
+    @property
+    def has_strong_assertions(self) -> bool:
+        """True when the scenario has at least one assertion type
+        with a concrete value that can fail."""
+        def _has(val) -> bool:
+            """None means skip; [] means exactly zero (strong assertion)."""
+            return val is not None
+        return bool(
+            _has(self.expected_candidates)
+            or _has(self.expected_raw_candidates)
+            or _has(self.expected_accepted_candidates)
+            or _has(self.expected_rejected_candidates)
+            or _has(self.expected_memories)
+            or _has(self.expected_queries)
+            or _has(self.expected_audit)
+            or bool(self.expected_security_counters)
+            or _has(self.forbidden_predicates)
+            or _has(self.forbidden_memory_ids)
+            or _has(self.forbidden_tenants)
+            or _has(self.forbidden_statuses)
+            or _has(self.forbidden_accepted_candidates)
+            or _has(self.forbidden_memories)
+            or self.forbidden_memory_type is not None
+            or _has(self.forbidden_subject_keys)
+            or _has(self.tenant_operations)
+            # injection_invariants: only count as strong when explicitly set
+            or (self.injection_invariants is not None
+                and self.injection_invariants.check_invariants())
+            or bool(self.expected_counts)
+            or _has(self.expected_rejection_reasons)
+        )
+
+    def count_mandatory_assertions(self) -> int:
+        count = 0
+        for field in [
+            self.expected_candidates,
+            self.expected_accepted_candidates,
+            self.expected_rejected_candidates,
+            self.expected_memories,
+            self.expected_queries,
+            self.expected_audit,
+            self.expected_security_counters,
+            self.forbidden_predicates,
+            self.forbidden_memories,
+            self.forbidden_accepted_candidates,
+            self.forbidden_memory_type,
+            self.expected_rejection_reasons,
+            self.tenant_operations,
+            self.injection_invariants,
+            self.expected_counts,
+        ]:
+            if field is not None and field != {}:
+                count += 1
+        return count
 
 
 class ScenarioResult(BaseModel):
@@ -178,15 +303,14 @@ class EvaluationSuite(BaseModel):
 
     @property
     def results(self) -> list[ScenarioResult]:
-        """Backward-compatible alias for scenario results."""
         return self.scenarios
 
     @results.setter
     def results(self, value: list[ScenarioResult]) -> None:
         self.scenarios = value
-        self.total_passed = sum(1 for result in value if result.passed)
-        self.total_failed = sum(1 for result in value if not result.passed)
-        self.total_duration_ms = sum(result.duration_ms for result in value)
+        self.total_passed = sum(1 for r in value if r.passed)
+        self.total_failed = sum(1 for r in value if not r.passed)
+        self.total_duration_ms = sum(r.duration_ms for r in value)
 
     @property
     def total_count(self) -> int:

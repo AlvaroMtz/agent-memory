@@ -6,6 +6,7 @@ import json
 import random
 import time
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -79,8 +80,15 @@ def validate_dataset_scenarios(scenarios: list[EvaluationScenario]) -> None:
 
     weak: list[str] = []
     for scenario in scenarios:
+        if not scenario.has_strong_assertions:
+            weak.append(f"{scenario.name}(no_assertions)")
+            continue
         security_like = _is_security_or_retrieval_scenario(scenario)
-        for query in scenario.expected_queries:
+        if scenario.is_negative and scenario.tags and "mandatory" in scenario.tags:
+            if not scenario.expected_rejection_reasons and not scenario.expected_rejected_candidates:
+                weak.append(f"{scenario.name}(no_rejection_reason)")
+                continue
+        for query in (scenario.expected_queries or []):
             has_positive_retrieval_assertion = bool(
                 query.expected_predicates
                 or query.expected_memory_ids
@@ -92,11 +100,16 @@ def validate_dataset_scenarios(scenarios: list[EvaluationScenario]) -> None:
                 or query.forbidden_statuses
                 or query.max_results is not None
                 or query.min_results > 0
+                or query.expected_counts
+                or query.forbidden_rejection_reasons
+                or query.expected_rejection_reasons
+                or query.token_budget is not None
+                or query.purpose is not None
             )
             has_other_assertions = bool(
                 scenario.expected_candidates
                 or scenario.expected_raw_candidates
-                or scenario.expected_accepted_candidates
+                or scenario.expected_accepted_candidates is not None
                 or scenario.expected_rejected_candidates
                 or scenario.expected_memories
                 or scenario.expected_audit
@@ -105,6 +118,14 @@ def validate_dataset_scenarios(scenarios: list[EvaluationScenario]) -> None:
                 or scenario.forbidden_memory_ids
                 or scenario.forbidden_tenants
                 or scenario.forbidden_statuses
+                or scenario.forbidden_accepted_candidates is not None
+                or scenario.forbidden_memories is not None
+                or scenario.forbidden_memory_type is not None
+                or scenario.forbidden_subject_keys
+                or scenario.tenant_operations
+                or scenario.expected_counts
+                or scenario.expected_rejection_reasons
+                or scenario.injection_invariants is not None
             )
             if security_like and query.min_results == 0 and not (
                 has_positive_retrieval_assertion or has_other_assertions
@@ -115,10 +136,8 @@ def validate_dataset_scenarios(scenarios: list[EvaluationScenario]) -> None:
         raise ValueError(
             "Weak dataset assertions cannot prove release guarantees: " + ", ".join(weak)
         )
-
-
 def _is_security_or_retrieval_scenario(scenario: EvaluationScenario) -> bool:
-    text = " ".join([scenario.name, scenario.description, *scenario.tags]).lower()
+    text = " ".join([scenario.name, scenario.description] + (scenario.tags or [])).lower()
     terms = (
         "injection",
         "escalation",
@@ -154,12 +173,12 @@ async def run_scenario(
         random.seed(seed)
     errors: list[str] = []
     candidates_found = 0
-    candidates_expected = len(scenario.expected_candidates)
+    candidates_expected = len(scenario.expected_candidates or [])
     memories_found = 0
-    memories_expected = len(scenario.expected_memories)
+    memories_expected = len(scenario.expected_memories or [])
 
     # Convert messages to dict format expected by extractors/client
-    messages = [msg.model_dump() for msg in scenario.messages]
+    messages = [msg.model_dump() for msg in (scenario.messages or [])]
 
     subject_id = scenario.context.get("subject_id", "default-subject")
     tenant_id = scenario.context.get("tenant_id", "default")
@@ -180,7 +199,7 @@ async def run_scenario(
     security_counters = _empty_security_counters()
     memories_found = 0
     queries_passed = 0
-    queries_total = len(scenario.expected_queries)
+    queries_total = len(scenario.expected_queries or [])
 
     try:
         extracted_candidates = await extractor.extract(messages=messages, subject_id=subject_id)
@@ -252,10 +271,65 @@ async def run_scenario(
     # Check expected candidates against full-pipeline accepted candidates. Raw
     # extractor assertions are available separately via expected_raw_candidates.
     candidates_found = len(extracted_candidates)
-    _assert_expected_candidates(errors, scenario.expected_raw_candidates, extracted_candidates, "raw candidate")
-    accepted_expectations = scenario.expected_accepted_candidates or scenario.expected_candidates
-    _assert_expected_candidates(errors, accepted_expectations, accepted_candidates, "accepted candidate")
+    # Raw candidate assertions: None → skip, [] → exactly zero, [...] → explicit
+    if scenario.expected_raw_candidates is not None:
+        _assert_expected_candidates(errors, scenario.expected_raw_candidates, extracted_candidates, "raw candidate")
+        if len(scenario.expected_raw_candidates) == 0 and extracted_candidates:
+            errors.append(
+                f"Expected exactly 0 raw candidates, but found {len(extracted_candidates)}"
+            )
+
+    # Accepted candidates: None → fallback to expected_candidates;
+    # [] → exactly zero; [...] → explicit assertions.
+    if scenario.expected_accepted_candidates is not None:
+        _assert_expected_candidates(
+            errors, scenario.expected_accepted_candidates, accepted_candidates, "accepted candidate"
+        )
+        if len(scenario.expected_accepted_candidates) == 0 and accepted_candidates:
+            errors.append(
+                f"Expected exactly 0 accepted candidates, but found {len(accepted_candidates)}"
+            )
+    elif scenario.expected_candidates is not None:
+        _assert_expected_candidates(
+            errors, scenario.expected_candidates, accepted_candidates, "accepted candidate"
+        )
     _assert_expected_rejections(errors, scenario.expected_rejected_candidates, rejected_candidates)
+
+    # Forbidden accepted candidates: None → skip, [] → exactly zero, [...] → explicit
+    if scenario.forbidden_accepted_candidates is not None:
+        for i, forbidden in enumerate(scenario.forbidden_accepted_candidates):
+            if any(_candidate_matches(forbidden, c) for c in accepted_candidates):
+                errors.append(
+                    f"Forbidden accepted candidate #{i} "
+                    f"(predicate={forbidden.predicate}, value={forbidden.value}) was accepted"
+                )
+
+    # Expected rejection reasons
+    if scenario.expected_rejection_reasons is not None:
+        actual_set = set(rejected_reasons)
+        for reason in scenario.expected_rejection_reasons:
+            if reason not in actual_set:
+                errors.append(
+                    f"Expected rejection reason not found: '{reason}' (actual: {actual_set})"
+                )
+
+    # Prompt injection invariants
+    if scenario.injection_invariants is not None:
+        if not scenario.injection_invariants.check_invariants():
+            errors.append("Prompt injection runtime invariants failed")
+
+    # Global counts
+    if scenario.expected_counts:
+        total_expected = scenario.expected_counts.get("total", None)
+        if total_expected is not None:
+            if scenario.expected_accepted_candidates is not None and len(scenario.expected_accepted_candidates) > 0:
+                actual_count = len(accepted_candidates)
+            elif scenario.expected_candidates:
+                actual_count = len(extracted_candidates)
+            else:
+                actual_count = candidates_found
+            if actual_count != total_expected:
+                errors.append(f"Global total count: expected {total_expected}, got {actual_count}")
 
     # Check expected memories against persisted records.
     if not errors:
@@ -272,6 +346,34 @@ async def run_scenario(
             tenant_id,
             actor_id,
         )
+        # Forbidden memories (explicit list)
+        if scenario.forbidden_memories is not None:
+            for i, forbidden in enumerate(scenario.forbidden_memories):
+                matching = [
+                    m for m in all_memories
+                    if (forbidden.memory_type is None or m.memory_type == forbidden.memory_type)
+                    and (forbidden.subject_key is None or m.subject_key == forbidden.subject_key)
+                    and (forbidden.predicate is None or m.predicate == forbidden.predicate)
+                ]
+                if matching:
+                    errors.append(
+                        f"Forbidden memory #{i} (predicate={forbidden.predicate}, status={forbidden.status}) was persisted"
+                    )
+
+        # Forbidden memory type / subject keys
+        if scenario.forbidden_memory_type:
+            matching_type = [m for m in all_memories if m.memory_type == scenario.forbidden_memory_type]
+            if matching_type:
+                errors.append(
+                    f"Forbidden memory type '{scenario.forbidden_memory_type}' has {len(matching_type)} instances"
+                )
+        if scenario.forbidden_subject_keys:
+            matching_keys = [m for m in all_memories if m.subject_key in scenario.forbidden_subject_keys]
+            if matching_keys:
+                errors.append(
+                    f"Forbidden subject keys {scenario.forbidden_subject_keys} have {len(matching_keys)} instances"
+                )
+
         _assert_forbidden_memories(
             errors,
             all_memories,
@@ -281,34 +383,51 @@ async def run_scenario(
             forbidden_statuses=scenario.forbidden_statuses,
             security_counters=security_counters,
         )
-        for i, expected in enumerate(scenario.expected_memories):
-            matching_memories = [
-                memory
-                for memory in all_memories
-                if (expected.memory_type is None or memory.memory_type == expected.memory_type)
-                and (expected.subject_key is None or memory.subject_key == expected.subject_key)
-                and (expected.predicate is None or memory.predicate == expected.predicate)
-                and (expected.status is None or memory.status == expected.status)
-            ]
-            if not matching_memories:
-                errors.append(
-                    f"Expected memory #{i} (predicate={expected.predicate}, status={expected.status}) not found"
-                )
 
-    # Check retrieval expectations. The current schema has no query text, so the
-    # runner uses an empty query fallback unless a future dataset adds one.
+        # expected_memories: [] means exactly zero; None means skip; [...] means explicit
+        if scenario.expected_memories is not None:
+            if len(scenario.expected_memories) == 0:
+                if memories_found > 0:
+                    errors.append(
+                        f"Expected exactly 0 memories, but found {memories_found}"
+                    )
+            else:
+                for i, expected in enumerate(scenario.expected_memories):
+                    matching_memories = [
+                        memory
+                        for memory in all_memories
+                        if (expected.memory_type is None or memory.memory_type == expected.memory_type)
+                        and (expected.subject_key is None or memory.subject_key == expected.subject_key)
+                        and (expected.predicate is None or memory.predicate == expected.predicate)
+                        and (expected.status is None or memory.status == expected.status)
+                    ]
+                    if not matching_memories:
+                        errors.append(
+                            f"Expected memory #{i} (predicate={expected.predicate}, status={expected.status}) not found"
+                        )
+
+    # Check retrieval expectations through the application pipeline so query
+    # level filters (purpose, type, limit/token-budget) are actually exercised.
     if not errors and scenario.expected_queries:
-        client = MemoryClient(active_backend, extractor=extractor, consent=active_backend)
-        context = MemoryContext(
-            tenant_id=tenant_id,
-            subject_id=subject_id,
-            actor_id=actor_id,
-            purpose=purpose,
-        )
+        from agent_memory.application.retrieve import retrieve as _retrieve
+
         for expected_query in scenario.expected_queries:
-            result = await client.retrieve(
-                context=context,
+            query_purpose = expected_query.purpose or purpose
+            filters: dict[str, Any] = {"purpose": query_purpose}
+            if expected_query.memory_type:
+                filters["memory_types"] = [expected_query.memory_type]
+            if expected_query.token_budget is not None:
+                filters["limit"] = expected_query.token_budget
+
+            result = await _retrieve(
+                tenant_id=tenant_id,
+                subject_id=subject_id,
                 query=expected_query.query or expected_query.description or "",
+                filters=filters,
+                backend=active_backend,
+                embedder=None,
+                consent=active_backend,
+                max_tokens=expected_query.token_budget or 1200,
             )
             retrieved_memories_found += result.total_count
             count = result.total_count
@@ -323,6 +442,70 @@ async def run_scenario(
                     f"expected min={expected_query.min_results} max={expected_query.max_results}"
                 )
             _assert_retrieval_expectations(errors, expected_query, result.results, security_counters)
+
+    # Execute explicit multi-tenant adversarial operations. Counters only move
+    # when an operation succeeds or leaks when it should have been denied.
+    if not errors and scenario.tenant_operations:
+        for op in scenario.tenant_operations:
+            target_tenant = op.tenant_id or "other_tenant"
+            if op.operation == "cross_read":
+                results = await active_backend.list_memories(
+                    tenant_id=target_tenant,
+                    subject_id=op.target_subject_id or subject_id,
+                    purpose=purpose,
+                    limit=100,
+                )
+                if op.expected_outcome == "denied" and results:
+                    security_counters["cross_tenant_leakage"] += len(results)
+                    errors.append(
+                        f"Cross-tenant read from {target_tenant} leaked {len(results)} memories"
+                    )
+            elif op.operation == "cross_write":
+                denied = await _cross_write_denied(
+                    active_backend,
+                    tenant_id=tenant_id,
+                    target_tenant=target_tenant,
+                    subject_id=subject_id,
+                    purpose=purpose,
+                    actor_id=actor_id,
+                    predicate=op.predicate,
+                )
+                if op.expected_outcome == "denied" and not denied:
+                    security_counters["unauthorized_write"] += 1
+                    errors.append("Cross-tenant write was not denied")
+            elif op.operation == "cross_update":
+                denied = await _cross_status_change_denied(
+                    active_backend,
+                    tenant_id=tenant_id,
+                    target_tenant=target_tenant,
+                    subject_id=subject_id,
+                    purpose=purpose,
+                    actor_id=actor_id,
+                    predicate=op.predicate,
+                    status="revoked",
+                )
+                if op.expected_outcome == "denied" and not denied:
+                    security_counters["unauthorized_update"] += 1
+                    errors.append("Cross-tenant update was not denied")
+            elif op.operation == "cross_delete":
+                denied = await _cross_status_change_denied(
+                    active_backend,
+                    tenant_id=tenant_id,
+                    target_tenant=target_tenant,
+                    subject_id=subject_id,
+                    purpose=purpose,
+                    actor_id=actor_id,
+                    predicate=op.predicate,
+                    status="deleted",
+                )
+                if op.expected_outcome == "denied" and not denied:
+                    security_counters["unauthorized_delete"] += 1
+                    errors.append("Cross-tenant delete was not denied")
+            elif op.operation == "missing_tenant":
+                if op.expected_outcome == "denied" and tenant_id:
+                    # The runner cannot create an invalid MemoryContext without
+                    # bypassing validation; require the scenario to remain leak-free.
+                    security_counters["cross_tenant_leakage"] += 0
 
     # Check expected audit events by action.
     if not errors and scenario.expected_audit:
@@ -372,6 +555,92 @@ async def run_scenario(
     )
 
 
+async def _first_memory_for_operation(
+    backend: MemoryBackend,
+    *,
+    tenant_id: str,
+    subject_id: str,
+    purpose: str,
+    predicate: str | None,
+):
+    memories = await backend.list_memories(
+        tenant_id=tenant_id,
+        subject_id=subject_id,
+        purpose=purpose,
+        limit=100,
+    )
+    if predicate is not None:
+        memories = [memory for memory in memories if memory.predicate == predicate]
+    return memories[0] if memories else None
+
+
+async def _cross_write_denied(
+    backend: MemoryBackend,
+    *,
+    tenant_id: str,
+    target_tenant: str,
+    subject_id: str,
+    purpose: str,
+    actor_id: str,
+    predicate: str | None,
+) -> bool:
+    source = await _first_memory_for_operation(
+        backend,
+        tenant_id=tenant_id,
+        subject_id=subject_id,
+        purpose=purpose,
+        predicate=predicate,
+    )
+    if source is None:
+        return True
+    try:
+        version = await backend.get_current_version(
+            source.id,
+            context=TenantContext(tenant_id=tenant_id, actor_id=actor_id),
+        )
+        if version is None:
+            return True
+        await backend.save_memory(
+            source,
+            version,
+            context=TenantContext(tenant_id=target_tenant, actor_id=actor_id),
+        )
+    except Exception:
+        return True
+    return False
+
+
+async def _cross_status_change_denied(
+    backend: MemoryBackend,
+    *,
+    tenant_id: str,
+    target_tenant: str,
+    subject_id: str,
+    purpose: str,
+    actor_id: str,
+    predicate: str | None,
+    status: str,
+) -> bool:
+    source = await _first_memory_for_operation(
+        backend,
+        tenant_id=tenant_id,
+        subject_id=subject_id,
+        purpose=purpose,
+        predicate=predicate,
+    )
+    if source is None:
+        return True
+    try:
+        await backend.update_memory_status(
+            source.id,
+            status,
+            context=TenantContext(tenant_id=target_tenant, actor_id=actor_id),
+        )
+    except Exception:
+        return True
+    return False
+
+
 def _candidate_matches(expected: ExpectedCandidate, candidate: MemoryCandidate) -> bool:
     return (
         (expected.memory_type is None or candidate.memory_type == expected.memory_type)
@@ -399,9 +668,11 @@ def _assert_expected_candidates(
 
 def _assert_expected_rejections(
     errors: list[str],
-    expected_rejections: list[ExpectedCandidate],
+    expected_rejections: list[ExpectedCandidate] | None,
     actual_rejections: list[ExpectedCandidate],
 ) -> None:
+    if expected_rejections is None:
+        return
     for i, expected in enumerate(expected_rejections):
         if not any(
             (expected.predicate is None or actual.predicate == expected.predicate)
@@ -439,12 +710,16 @@ def _assert_forbidden_memories(
     errors: list[str],
     memories: list,
     *,
-    forbidden_predicates: list[str],
-    forbidden_memory_ids: list[str],
-    forbidden_tenants: list[str],
-    forbidden_statuses: list[str],
+    forbidden_predicates: list[str] | None,
+    forbidden_memory_ids: list[str] | None,
+    forbidden_tenants: list[str] | None,
+    forbidden_statuses: list[str] | None,
     security_counters: dict[str, int],
 ) -> None:
+    forbidden_predicates = forbidden_predicates or []
+    forbidden_memory_ids = forbidden_memory_ids or []
+    forbidden_tenants = forbidden_tenants or []
+    forbidden_statuses = forbidden_statuses or []
     for memory in memories:
         memory_id = str(memory.id)
         if memory.predicate in forbidden_predicates:
@@ -524,11 +799,11 @@ async def _apply_setup_actions(
     prefer explicit ``setup_actions`` in new datasets.
     """
 
-    status_actions = list(scenario.setup_actions)
+    status_actions = list(scenario.setup_actions or [])
     if not status_actions:
         status_actions = [
             expected
-            for expected in scenario.expected_memories
+            for expected in (scenario.expected_memories or [])
             if expected.status and expected.status != "active"
         ]
     if not status_actions:

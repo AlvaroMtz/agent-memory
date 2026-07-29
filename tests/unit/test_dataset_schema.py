@@ -75,11 +75,11 @@ class TestEvaluationScenario:
         scenario = EvaluationScenario(name="test-scenario")
         assert scenario.name == "test-scenario"
         assert scenario.context == {}
-        assert scenario.messages == []
-        assert scenario.expected_candidates == []
-        assert scenario.expected_raw_candidates == []
-        assert scenario.expected_accepted_candidates == []
-        assert scenario.expected_rejected_candidates == []
+        assert scenario.messages is None
+        assert scenario.expected_candidates is None
+        assert scenario.expected_raw_candidates is None
+        assert scenario.expected_accepted_candidates is None
+        assert scenario.expected_rejected_candidates is None
         assert scenario.expected_security_counters == {}
         assert scenario.expected_to_fail is False
 

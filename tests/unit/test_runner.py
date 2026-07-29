@@ -53,8 +53,8 @@ class TestLoadScenario:
 
         scenarios = load_dataset("datasets")
         assert len(scenarios) >= 32
-        assert any(s.name == "injection_attempt_in_memory_value" for s in scenarios)
-        assert any(s.name == "injection_through_evidence" for s in scenarios)
+        assert any(s.name == "prompt-injection-ignore-previous-instructions" for s in scenarios)
+        assert any(s.name == "prompt-injection-through-evidence" for s in scenarios)
 
     def test_validate_dataset_rejects_weak_security_assertion(self):
         scenario = EvaluationScenario(
