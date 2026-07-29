@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import builtins
 import contextlib
 from unittest.mock import patch
 
+import agent_memory.telemetry.tracing as tracing_module
 from agent_memory.telemetry import redaction
 from agent_memory.telemetry.metrics import (
     MetricsProvider,
@@ -74,6 +76,83 @@ class TestTracingProviderNoOp:
             ctx = provider.create_trace_context()
             assert ctx is None
 
+    def test_trace_operation_uses_configured_tracer(self):
+        """trace_operation starts a span, sets attributes, yields it, and ends it."""
+
+        class Span:
+            def __init__(self) -> None:
+                self.attributes = {}
+                self.ended = False
+
+            def set_attribute(self, key, value) -> None:
+                self.attributes[key] = value
+
+            def end(self) -> None:
+                self.ended = True
+
+        class Tracer:
+            def __init__(self) -> None:
+                self.span = Span()
+                self.names = []
+
+            def start_span(self, name):
+                self.names.append(name)
+                return self.span
+
+        tracer = Tracer()
+        provider = TracingProvider()
+        provider._otel_available = True
+        provider._tracer = tracer
+
+        with provider.trace_operation("remember", {"tenant": "t1", "count": "1"}) as span:
+            assert span is tracer.span
+
+        assert tracer.names == ["remember"]
+        assert tracer.span.attributes == {"tenant": "t1", "count": "1"}
+        assert tracer.span.ended is True
+
+    def test_trace_operation_falls_back_on_tracer_error(self):
+        """trace_operation yields a no-op span if the configured tracer fails."""
+
+        class BrokenTracer:
+            def start_span(self, name):
+                raise RuntimeError("boom")
+
+        provider = TracingProvider()
+        provider._otel_available = True
+        provider._tracer = BrokenTracer()
+
+        with provider.trace_operation("broken") as span:
+            assert isinstance(span, _NoopSpan)
+
+    def test_create_trace_context_returns_otel_context_when_available(self):
+        """create_trace_context returns an OTel context when context creation is available."""
+
+        provider = TracingProvider()
+        provider._otel_available = True
+
+        assert provider.create_trace_context() is not None
+
+    def test_setup_falls_back_when_otel_setup_fails(self):
+        """setup falls back to no-op tracing if runtime OTel initialization fails."""
+
+        real_import = builtins.__import__
+
+        def fail_export_import(name, *args, **kwargs):
+            if name == "opentelemetry.sdk.trace.export":
+                raise RuntimeError("export setup failed")
+            return real_import(name, *args, **kwargs)
+
+        provider = TracingProvider()
+        provider._otel_available = True
+
+        with patch.object(builtins, "__import__", side_effect=fail_export_import):
+            result = provider.setup("test-service")
+
+        assert result is provider
+        assert provider._otel_available is False
+        assert isinstance(provider._tracer, _NoopTracer)
+
 
 class TestMetricsProviderNoOp:
     """Tests for MetricsProvider when OpenTelemetry is not installed."""
@@ -117,6 +196,63 @@ class TestMetricsProviderNoOp:
             provider = MetricsProvider()
             provider.record_memory_count(5, "preference")
 
+    def test_record_duration_uses_configured_meter(self):
+        """record_operation_duration writes histogram observations when a meter exists."""
+
+        class Histogram:
+            def __init__(self) -> None:
+                self.records = []
+
+            def record(self, value, attributes):
+                self.records.append((value, attributes))
+
+        class Meter:
+            def __init__(self) -> None:
+                self.histogram = Histogram()
+                self.args = None
+
+            def create_histogram(self, **kwargs):
+                self.args = kwargs
+                return self.histogram
+
+        meter = Meter()
+        provider = MetricsProvider()
+        provider._meter = meter
+
+        provider.record_operation_duration("remember", 12.5, {"tenant": "t1"})
+
+        assert meter.args["name"] == "remember.duration_ms"
+        assert meter.histogram.records == [(12.5, {"tenant": "t1"})]
+
+    def test_record_memory_count_uses_configured_meter(self):
+        """record_memory_count writes counter observations and optional memory type."""
+
+        class Counter:
+            def __init__(self) -> None:
+                self.adds = []
+
+            def add(self, value, attributes):
+                self.adds.append((value, attributes))
+
+        class Meter:
+            def __init__(self) -> None:
+                self.counter = Counter()
+                self.args = None
+
+            def create_counter(self, **kwargs):
+                self.args = kwargs
+                return self.counter
+
+        meter = Meter()
+        provider = MetricsProvider()
+        provider._meter = meter
+
+        provider.record_memory_count(3, "semantic")
+        provider.record_memory_count(2)
+
+        assert meter.args["name"] == "agent_memory.count"
+        assert meter.counter.adds == [(3, {"memory_type": "semantic"}), (2, None)]
+
 
 class TestModuleFunctions:
     """Tests for module-level convenience functions."""
@@ -138,6 +274,16 @@ class TestModuleFunctions:
         with patch.dict("sys.modules", {"opentelemetry": None, "opentelemetry.sdk": None}):
             with trace_operation("test-op") as span:
                 assert isinstance(span, _NoopSpan)
+
+    def test_create_trace_context_uses_existing_global_provider(self, monkeypatch):
+        """module-level create_trace_context uses the configured global provider state."""
+
+        class Provider:
+            _otel_available = True
+
+        monkeypatch.setattr(tracing_module, "_default_provider", Provider())
+
+        assert create_trace_context() is not None
 
     def test_setup_metrics(self):
         """setup_metrics returns a MetricsProvider."""

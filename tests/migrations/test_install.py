@@ -50,10 +50,11 @@ def test_alembic_heads_match_revision():
 
 def test_migration_idempotency():
     """Verify alembic stamp head can be run multiple times."""
-    from alembic.command import check
+    from alembic.command import check, upgrade
     from alembic.config import Config
 
     alembic_cfg = Config("alembic.ini")
+    upgrade(alembic_cfg, "head")
     # check raises SystemExit if not at head, otherwise passes
     try:
         check(alembic_cfg)
