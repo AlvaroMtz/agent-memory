@@ -1,0 +1,35 @@
+name: agent-memory-v0.0.1-compliance-hardening
+title: "agent-memory v0.0.1 — Compliance hardening against master spec"
+status: proposed
+priority: critical
+created_at: 2026-07-29
+description: |
+  Remediation change for gaps found when comparing the current implementation
+  against the master prompt/spec for agent-memory v0.0.1.
+
+  This change treats security, consent, evidence, tenant isolation, encryption,
+  evaluation, Memory Lab, LangChain integration, and release gates as product
+  guarantees, not as documentation claims.
+
+  The previous archived change claims full compliance, but code review found
+  several critical mismatches:
+  - LangChain dependency targets <1 while the master spec requires LangChain v1.
+  - LangChain middleware extracts candidates but does not persist/version/audit them.
+  - Encrypted values are written but not decrypted through retrieval.
+  - Memory Lab hardcodes tenant/purpose context and does not expose required panels.
+  - Scenario runner validates extractor output directly, bypassing the real pipeline.
+  - Release gates partly verify configured thresholds rather than observed outcomes.
+  - Mandatory datasets and adversarial cases are incomplete or too weak.
+
+artifacts:
+  proposal: openspec/specs/agent-memory-v0.0.1-compliance-proposal.md
+  spec: openspec/specs/agent-memory-v0.0.1-compliance-spec.md
+  design: openspec/specs/agent-memory-v0.0.1-compliance-design.md
+  tasks: openspec/specs/agent-memory-v0.0.1-compliance-tasks.md
+
+success_criteria:
+  - All compliance acceptance criteria pass against implementation, not just configuration.
+  - Release check fails if any required security/evaluation scenario is missing or weak.
+  - LangChain v1 middleware persists, retrieves, renders, versions, and audits through MemoryClient.
+  - Encrypted retrieval decrypts or fails closed.
+  - Memory Lab demonstrates the required end-to-end and adversarial workflows.
