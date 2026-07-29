@@ -30,6 +30,7 @@ from agent_memory.postgres.models import (
     AuditLogModel,
     ConsentModel,
     MemoryModel,
+    MemoryVersionModel,
 )
 from agent_memory.postgres.repositories import (
     AuditRepository,
@@ -38,6 +39,22 @@ from agent_memory.postgres.repositories import (
 )
 
 _NOW = datetime.now(UTC)
+
+
+def test_model_metadata_declares_migration_indexes() -> None:
+    """ORM metadata must keep Alembic autogenerate aligned with initial migration."""
+
+    assert "ix_memories_tenant_subject" in {idx.name for idx in MemoryModel.__table__.indexes}
+    assert "ix_memory_versions_memory_id" in {
+        idx.name for idx in MemoryVersionModel.__table__.indexes
+    }
+    assert "ix_memory_versions_embedding_ivfflat" in {
+        idx.name for idx in MemoryVersionModel.__table__.indexes
+    }
+    assert "ix_consent_tenant_subject_purpose" in {
+        idx.name for idx in ConsentModel.__table__.indexes
+    }
+    assert "ix_audit_log_tenant_action" in {idx.name for idx in AuditLogModel.__table__.indexes}
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────────

@@ -16,6 +16,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     PrimaryKeyConstraint,
     String,
@@ -104,6 +105,8 @@ class MemoryModel(Base):
         order_by="MemoryVersionModel.version",
     )
 
+    __table_args__ = (Index("ix_memories_tenant_subject", "tenant_id", "subject_id"),)
+
     def __repr__(self) -> str:
         return (
             f"<MemoryModel id={self.id} tenant={self.tenant_id} "
@@ -186,6 +189,15 @@ class MemoryVersionModel(Base):
 
     __table_args__ = (
         PrimaryKeyConstraint("id", name="pk_memory_versions"),
+        Index("ix_memory_versions_memory_id", "memory_id"),
+        Index(
+            "ix_memory_versions_embedding_ivfflat",
+            "embedding",
+            postgresql_using="ivfflat",
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+            postgresql_with={"lists": 100},
+            postgresql_where=embedding.is_not(None),
+        ),
         {"sqlite_autoincrement": True},
     )
 
@@ -288,6 +300,10 @@ class ConsentModel(Base):
             f"version={self.version}>"
         )
 
+    __table_args__ = (
+        Index("ix_consent_tenant_subject_purpose", "tenant_id", "subject_id", "purpose"),
+    )
+
 
 class AuditLogModel(Base):
     """Append-only audit log — every operation is auditable."""
@@ -335,3 +351,5 @@ class AuditLogModel(Base):
             f"<AuditLogModel id={self.id} tenant={self.tenant_id} "
             f"actor={self.actor_id} action={self.action}>"
         )
+
+    __table_args__ = (Index("ix_audit_log_tenant_action", "tenant_id", "action"),)
