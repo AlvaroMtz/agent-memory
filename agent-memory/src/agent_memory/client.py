@@ -18,10 +18,10 @@ from uuid import UUID, uuid4
 from agent_memory.application.audit import AuditService
 from agent_memory.application.remember import extract_memories
 from agent_memory.application.retrieve import retrieve
-from agent_memory.constants import MemoryStatus, Sensitivity, SourceType
+from agent_memory.constants import MemoryStatus, SourceType
 from agent_memory.context import MemoryContext, TenantContext
 from agent_memory.domain.candidate import MemoryCandidate
-from agent_memory.domain.consent import ConsentRecord, ConsentGrant
+from agent_memory.domain.consent import ConsentGrant, ConsentRecord
 from agent_memory.domain.forget import ForgetResult
 from agent_memory.domain.memory import MemoryRecord, MemoryVersion
 from agent_memory.domain.remember import RememberResult
@@ -72,7 +72,7 @@ class MemoryClient:
         self._encryption = encryption
         self._audit = AuditService(backend)
 
-    async def __aenter__(self) -> "MemoryClient":
+    async def __aenter__(self) -> MemoryClient:
         if hasattr(self._backend, "initialize"):
             await self._backend.initialize()
         return self
@@ -110,7 +110,9 @@ class MemoryClient:
         if self._consent is None:
             logger.info(
                 "remember blocked: no consent provider configured for tenant=%s subject=%s purpose=%s",
-                tenant_id, subject_id, purpose,
+                tenant_id,
+                subject_id,
+                purpose,
             )
             await self._audit.log_action(
                 tenant_id=tenant_id,
@@ -139,7 +141,9 @@ class MemoryClient:
         if consent_record is None:
             logger.info(
                 "remember blocked: no active consent for tenant=%s subject=%s purpose=%s",
-                tenant_id, subject_id, purpose,
+                tenant_id,
+                subject_id,
+                purpose,
             )
             await self._audit.log_action(
                 tenant_id=tenant_id,
@@ -194,7 +198,10 @@ class MemoryClient:
                     reason="consent does not allow candidate type/sensitivity",
                     resource_type="candidate",
                     memory_type=candidate.memory_type,
-                    details={"predicate": candidate.predicate, "sensitivity": candidate.sensitivity},
+                    details={
+                        "predicate": candidate.predicate,
+                        "sensitivity": candidate.sensitivity,
+                    },
                 )
         candidates = allowed_candidates
 
@@ -220,6 +227,44 @@ class MemoryClient:
         tenant_ctx = TenantContext(tenant_id=tenant_id, actor_id=context.actor_id)
 
         for candidate in candidates:
+            existing_active = await self._find_active_memory_for_candidate(
+                tenant_id=tenant_id,
+                subject_id=subject_id,
+                purpose=purpose,
+                candidate=candidate,
+            )
+            supersedes_memory_id: UUID | None = None
+            record_status: MemoryStatus = "active"
+            if existing_active is not None:
+                existing_version = await _get_current_version_if_available(
+                    self._backend,
+                    existing_active.id,
+                    tenant_ctx,
+                )
+                existing_value = existing_version.value if existing_version is not None else None
+                if _values_equal(existing_value, candidate.value):
+                    await self._audit.log_action(
+                        tenant_id=tenant_id,
+                        actor_id=context.actor_id,
+                        action="memory.candidate_rejected",
+                        outcome="denied",
+                        reason="duplicate candidate",
+                        resource_type="candidate",
+                        resource_id=str(existing_active.id),
+                        memory_type=candidate.memory_type,
+                        details={"predicate": candidate.predicate},
+                    )
+                    continue
+                supersedes_memory_id = existing_active.id
+                if candidate.memory_type == "preference":
+                    await self._backend.update_memory_status(
+                        existing_active.id,
+                        "superseded",
+                        context=tenant_ctx,
+                    )
+                else:
+                    record_status = "pending_review"
+
             memory_id = uuid4()
             record = MemoryRecord(
                 id=memory_id,
@@ -229,7 +274,7 @@ class MemoryClient:
                 memory_type=candidate.memory_type,
                 subject_key=candidate.subject_key,
                 predicate=candidate.predicate,
-                status="active",
+                status=record_status,
                 current_version=1,
             )
 
@@ -254,7 +299,9 @@ class MemoryClient:
                     "algorithm": value_payload.algorithm,
                     "key_id": value_payload.key_id,
                     "ciphertext": base64.b64encode(value_payload.ciphertext).decode("ascii"),
-                    "nonce": base64.b64encode(value_payload.nonce).decode("ascii") if value_payload.nonce else None,
+                    "nonce": base64.b64encode(value_payload.nonce).decode("ascii")
+                    if value_payload.nonce
+                    else None,
                 }
                 stored_evidence = json.dumps(
                     {
@@ -262,7 +309,9 @@ class MemoryClient:
                         "algorithm": evidence_payload.algorithm,
                         "key_id": evidence_payload.key_id,
                         "ciphertext": base64.b64encode(evidence_payload.ciphertext).decode("ascii"),
-                        "nonce": base64.b64encode(evidence_payload.nonce).decode("ascii") if evidence_payload.nonce else None,
+                        "nonce": base64.b64encode(evidence_payload.nonce).decode("ascii")
+                        if evidence_payload.nonce
+                        else None,
                     },
                     separators=(",", ":"),
                 )
@@ -277,21 +326,30 @@ class MemoryClient:
                 source_type=_infer_source_type(candidate),
                 source_message_id=candidate.source_message_id,
                 evidence_text=stored_evidence,
-                extractor_provider=self._extractor.__class__.__name__ if self._extractor else "unknown",
+                extractor_provider=self._extractor.__class__.__name__
+                if self._extractor
+                else "unknown",
                 extractor_model="",
                 extractor_prompt_version="",
-                embedding_provider=self._embedder.__class__.__name__ if _can_embed(self._embedder) else "",
+                embedding_provider=self._embedder.__class__.__name__
+                if _can_embed(self._embedder)
+                else "",
                 embedding_model="deterministic" if _can_embed(self._embedder) else "",
                 embedding=await _embed_text(
                     self._embedder,
                     f"{candidate.predicate} {candidate.value}",
                 ),
-                consent_id=consent_record.id if self._consent is not None and consent_record else None,
+                consent_id=consent_record.id
+                if self._consent is not None and consent_record
+                else None,
+                supersedes_memory_id=supersedes_memory_id,
             )
 
             try:
                 saved = await self._backend.save_memory(
-                    record, version, context=tenant_ctx,
+                    record,
+                    version,
+                    context=tenant_ctx,
                 )
                 memories.append(saved)
                 versions.append(version)
@@ -336,6 +394,32 @@ class MemoryClient:
             tenant_id=tenant_id,
             subject_id=subject_id,
         )
+
+    async def _find_active_memory_for_candidate(
+        self,
+        *,
+        tenant_id: str,
+        subject_id: str,
+        purpose: str,
+        candidate: MemoryCandidate,
+    ) -> MemoryRecord | None:
+        """Find an active memory with the logical identity required by the spec."""
+
+        existing = await self._backend.list_memories(
+            tenant_id=tenant_id,
+            subject_id=subject_id,
+            purpose=purpose,
+            memory_type=candidate.memory_type,
+            status="active",
+            limit=1_000,
+        )
+        for memory in existing:
+            if (
+                memory.subject_key == candidate.subject_key
+                and memory.predicate == candidate.predicate
+            ):
+                return memory
+        return None
 
     # ── retrieve ───────────────────────────────────────────────────────────────
 
@@ -414,7 +498,9 @@ class MemoryClient:
             raise TypeError("forget requires memory_id and context")
         tenant_ctx = TenantContext(tenant_id=context.tenant_id, actor_id=context.actor_id)
         await self._backend.update_memory_status(
-            memory_id=memory_id, status="deleted", context=tenant_ctx,
+            memory_id=memory_id,
+            status="deleted",
+            context=tenant_ctx,
         )
         audit_event = await self._audit.log_action(
             tenant_id=context.tenant_id,
@@ -514,9 +600,13 @@ class MemoryClient:
             consent_id = active.id
         tenant_ctx = TenantContext(tenant_id=context.tenant_id, actor_id=context.actor_id)
         if _has_configured_attr(self._backend, "revoke_consent"):
-            revoked = await _maybe_await(self._backend.revoke_consent(consent_id, context=tenant_ctx))
+            revoked = await _maybe_await(
+                self._backend.revoke_consent(consent_id, context=tenant_ctx)
+            )
         elif self._consent is not None and _has_configured_attr(self._consent, "revoke_consent"):
-            revoked = await _maybe_await(self._consent.revoke_consent(consent_id, context=tenant_ctx))
+            revoked = await _maybe_await(
+                self._consent.revoke_consent(consent_id, context=tenant_ctx)
+            )
         else:
             raise RuntimeError("No consent revocation provider configured")
         memories = await self._backend.list_memories(
@@ -619,3 +709,26 @@ async def _embed_text(embedder: Any, text: str) -> list[float] | None:
     if not _can_embed(embedder):
         return None
     return await _maybe_await(embedder.embed(text))
+
+
+async def _get_current_version_if_available(
+    backend: Any,
+    memory_id: UUID,
+    context: TenantContext,
+) -> MemoryVersion | None:
+    """Read a current version when the backend supports the explicit contract."""
+
+    if not _has_configured_attr(backend, "get_current_version"):
+        return None
+    return await _maybe_await(backend.get_current_version(memory_id, context=context))
+
+
+def _values_equal(left: Any, right: Any) -> bool:
+    """Deterministic JSON-ish equality used for duplicate detection."""
+
+    try:
+        return json.dumps(left, sort_keys=True, ensure_ascii=False) == json.dumps(
+            right, sort_keys=True, ensure_ascii=False
+        )
+    except TypeError:
+        return str(left) == str(right)

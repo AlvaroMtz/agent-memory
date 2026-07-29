@@ -10,8 +10,6 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from agent_memory.config import MemoryConfig, load_config
 from agent_memory.context import TenantContext
 from agent_memory.domain.audit import AuditEvent, AuditQuery
@@ -20,16 +18,13 @@ from agent_memory.domain.memory import MemoryRecord, MemoryVersion
 from agent_memory.domain.retrieval import RetrievedMemory
 from agent_memory.exceptions import (
     ConfigurationError,
-    ConsentNotFoundError,
-    MemoryNotFoundError,
-    TenantIsolationError,
 )
 from agent_memory.postgres.repositories import (
     AuditRepository,
     ConsentRepository,
     MemoryRepository,
 )
-from agent_memory.postgres.session import create_engine, get_session, close_engine
+from agent_memory.postgres.session import close_engine, create_engine, get_session
 
 
 class PostgresBackend:
@@ -116,10 +111,29 @@ class PostgresBackend:
         ) as session:
             repo = MemoryRepository(session)
             result = await repo.add_version(
-                memory_id, version, tenant_id=context.tenant_id,
+                memory_id,
+                version,
+                tenant_id=context.tenant_id,
             )
             await session.commit()
             return result
+
+    async def get_current_version(
+        self,
+        memory_id: UUID,
+        *,
+        context: TenantContext,
+    ) -> MemoryVersion | None:
+        """Get the current immutable version for a tenant-scoped memory."""
+        async with get_session(
+            tenant_id=context.tenant_id,
+            actor_id=context.actor_id,
+        ) as session:
+            repo = MemoryRepository(session)
+            memory = await repo.get(memory_id, tenant_id=context.tenant_id)
+            if memory is None:
+                return None
+            return await repo.get_current_version(memory_id, version=memory.current_version)
 
     async def update_memory_status(
         self,
@@ -226,7 +240,9 @@ class PostgresBackend:
                 if statuses and record.status not in statuses:
                     continue
 
-                search_text = f"{record.predicate} {record.subject_key} {version.searchable_summary}".lower()
+                search_text = (
+                    f"{record.predicate} {record.subject_key} {version.searchable_summary}".lower()
+                )
                 lexical_score = 0.5
                 if query and query.lower() in search_text:
                     lexical_score = 0.9
@@ -305,7 +321,8 @@ class PostgresBackend:
         ) as session:
             repo = ConsentRepository(session)
             result = await repo.revoke(
-                consent_id, tenant_id=context.tenant_id,
+                consent_id,
+                tenant_id=context.tenant_id,
             )
             await session.commit()
             return result
@@ -354,6 +371,7 @@ class PostgresBackend:
         try:
             async with get_session() as session:
                 from sqlalchemy import text
+
                 await session.execute(text("SELECT 1"))
             return {"healthy": True, "type": "postgres"}
         except Exception:

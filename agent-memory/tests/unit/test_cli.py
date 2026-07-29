@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 import types
 from unittest.mock import MagicMock, patch
+from uuid import uuid4
 
 from click.testing import CliRunner
 
@@ -74,7 +75,9 @@ class TestCLI:
 
     def test_check_strict(self):
         """check --strict exits 0 when all gates pass."""
-        with patch("agent_memory.evaluation.reports._assert_release_gates", return_value=["config OK"]):
+        with patch(
+            "agent_memory.evaluation.reports._assert_release_gates", return_value=["config OK"]
+        ):
             result = CliRunner().invoke(app, ["check", "--strict"])
         assert result.exit_code == 0
 
@@ -125,49 +128,83 @@ class TestCLI:
         """eval report runs without error."""
         result = CliRunner().invoke(
             app,
-            ["eval", "report", "--path", "/tmp/agent-memory-nodatasets-nonexistent", "--format", "json"],
+            [
+                "eval",
+                "report",
+                "--path",
+                "/tmp/agent-memory-nodatasets-nonexistent",
+                "--format",
+                "json",
+            ],
         )
         assert result.exit_code == 0
 
     def test_consent_grant(self):
         """consent grant runs without error."""
-        result = CliRunner().invoke(app, ["consent", "grant"])
+        result = CliRunner().invoke(
+            app, ["consent", "grant"], env={"AGENT_MEMORY_CLI_BACKEND": "in-memory"}
+        )
         assert result.exit_code == 0
         assert "Consent granted" in result.output
 
     def test_consent_revoke(self):
-        """consent revoke runs without error."""
-        result = CliRunner().invoke(app, ["consent", "revoke"])
-        assert result.exit_code == 0
-        assert "Consent revoked" in result.output
+        """consent revoke fails closed when no active persisted consent exists."""
+        result = CliRunner().invoke(
+            app, ["consent", "revoke"], env={"AGENT_MEMORY_CLI_BACKEND": "in-memory"}
+        )
+        assert result.exit_code != 0
 
     def test_consent_list(self):
         """consent list runs without error."""
-        result = CliRunner().invoke(app, ["consent", "list"])
+        result = CliRunner().invoke(
+            app, ["consent", "list"], env={"AGENT_MEMORY_CLI_BACKEND": "in-memory"}
+        )
         assert result.exit_code == 0
-        assert "Consent records" in result.output
+        assert "[]" in result.output
 
     def test_memory_list(self):
         """memory list runs without error."""
-        result = CliRunner().invoke(app, ["memory", "list"])
+        result = CliRunner().invoke(
+            app, ["memory", "list"], env={"AGENT_MEMORY_CLI_BACKEND": "in-memory"}
+        )
         assert result.exit_code == 0
-        assert "Memories for" in result.output
+        assert "[]" in result.output
 
     def test_memory_inspect(self):
-        """memory inspect runs without error."""
-        result = CliRunner().invoke(app, ["memory", "inspect", "--id", "test-id"])
+        """memory inspect requires tenant-scoped context and returns JSON/null."""
+        result = CliRunner().invoke(
+            app,
+            ["memory", "inspect", "--id", str(uuid4()), "--tenant-id", "default"],
+            env={"AGENT_MEMORY_CLI_BACKEND": "in-memory"},
+        )
         assert result.exit_code == 0
-        assert "Inspecting memory" in result.output
+        assert "null" in result.output
 
     def test_memory_forget(self):
-        """memory forget runs without error."""
-        result = CliRunner().invoke(app, ["memory", "forget", "--id", "test-id"])
-        assert result.exit_code == 0
-        assert "Revoking memory" in result.output
+        """memory forget fails closed without a matching memory."""
+        result = CliRunner().invoke(
+            app,
+            [
+                "memory",
+                "forget",
+                "--id",
+                str(uuid4()),
+                "--tenant-id",
+                "default",
+                "--subject-id",
+                "default",
+                "--purpose",
+                "testing",
+            ],
+            env={"AGENT_MEMORY_CLI_BACKEND": "in-memory"},
+        )
+        assert result.exit_code != 0
 
     def test_security_check(self):
         """security-check runs without error."""
-        with patch("agent_memory.evaluation.reports._assert_release_gates", return_value=["config OK"]):
+        with patch(
+            "agent_memory.evaluation.reports._assert_release_gates", return_value=["config OK"]
+        ):
             result = CliRunner().invoke(app, ["security-check"])
         assert result.exit_code == 0
         assert "Security Check" in result.output

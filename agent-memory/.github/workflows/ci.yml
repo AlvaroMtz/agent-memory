@@ -19,7 +19,10 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: pip install ruff
-      - run: ruff check agent-memory/
+      - run: ruff check src tests scripts examples/langchain_agent/agent.py
+        working-directory: agent-memory
+      - run: ruff format --check src tests scripts examples/langchain_agent/agent.py
+        working-directory: agent-memory
 
   test:
     runs-on: ubuntu-latest
@@ -44,9 +47,13 @@ jobs:
 
   migration-test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        postgres-version: ["16", "17"]
+      fail-fast: false
     services:
       postgres:
-        image: pgvector/pgvector:pg16
+        image: pgvector/pgvector:pg${{ matrix.postgres-version }}
         env:
           POSTGRES_DB: agent_memory_test
           POSTGRES_USER: postgres
@@ -72,11 +79,32 @@ jobs:
           AGENT_MEMORY_DATABASE__URI="postgresql+psycopg://postgres:postgres@localhost:5432/agent_memory_test" \
           pytest tests/migrations/ -q --tb=short
         working-directory: agent-memory
-      - name: Release check
-        run: |
-          pip install click
-          make release-check
+
+  security-isolation:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
         working-directory: agent-memory
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -e ".[dev,lab,crypto]"
+      - run: pytest tests/security -q --tb=short
+
+  security-prompt-injection:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent-memory
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -e ".[dev,lab,crypto]"
+      - run: python -m agent_memory.cli.main scenario run datasets/prompt_injection --format json
 
   build:
     runs-on: ubuntu-latest
@@ -153,3 +181,63 @@ jobs:
                       print(f'  - {s.name}: {len(s.messages)} messages')
                   assert len(scenarios) > 0, f'No scenarios in {dataset_dir}'
           "
+
+  eval-extraction:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent-memory
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -e ".[dev,lab,crypto]"
+      - run: python -m agent_memory.cli.main scenario run datasets/extraction --format junit
+
+  eval-retrieval:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent-memory
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -e ".[dev,lab,crypto]"
+      - run: python -m agent_memory.cli.main scenario run datasets/retrieval --format junit
+
+  release-gates:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent-memory
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -e ".[dev,lab,crypto]"
+      - run: make release-check
+
+  dependency-scan:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent-memory
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -e ".[dev,lab,crypto]" pip-audit
+      - run: pip-audit
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2

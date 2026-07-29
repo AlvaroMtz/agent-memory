@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
-from typing import Any
 
 from fastapi import Depends, FastAPI, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from starlette.responses import RedirectResponse
 
 from agent_memory.lab.schemas import (
     ConsentGrantRequest,
@@ -21,22 +20,34 @@ from agent_memory.lab.schemas import (
 )
 from agent_memory.lab.services import LabServices
 
-
 # ── Lifespan ─────────────────────────────────────────────────────────────────
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifecycle: initialize and shutdown services."""
-    from agent_memory.providers.in_memory_backend import InMemoryBackend
     from agent_memory.providers.rule_based_extractor import RuleBasedExtractor
 
-    backend = InMemoryBackend()
+    backend_mode = os.environ.get("AGENT_MEMORY_LAB_BACKEND", "postgres")
+    if backend_mode == "in-memory":
+        from agent_memory.providers.in_memory_backend import InMemoryBackend
+
+        backend = InMemoryBackend()
+    else:
+        try:
+            from agent_memory.config import load_config
+            from agent_memory.postgres.backend import PostgresBackend
+
+            backend = PostgresBackend(load_config())
+        except ModuleNotFoundError:
+            from agent_memory.providers.in_memory_backend import InMemoryBackend
+
+            backend = InMemoryBackend()
     await backend.initialize()
     app.state.services = LabServices(backend=backend, extractor=RuleBasedExtractor())
     yield
     # Shutdown
-    if hasattr(app.state.services, 'backend') and app.state.services.backend is not None:
+    if hasattr(app.state.services, "backend") and app.state.services.backend is not None:
         try:
             await app.state.services.backend.close()
         except Exception:

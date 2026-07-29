@@ -10,7 +10,7 @@ import logging
 from typing import Any
 
 from agent_memory.constants import MemoryStatusEnum
-from agent_memory.domain.retrieval import RetrievedMemory, RetrievalResult
+from agent_memory.domain.retrieval import RetrievalResult, RetrievedMemory
 from agent_memory.ports.backend import MemoryBackend
 from agent_memory.ports.consent import ConsentProvider
 from agent_memory.ports.embedder import EmbeddingProvider
@@ -86,7 +86,7 @@ async def retrieve(
                 query=effective_query,
                 memory_types=memory_types,
                 statuses=statuses,
-                query_vector=None,
+                query_vector=query_vector,
                 purpose=purpose,
                 limit=limit,
             )
@@ -106,7 +106,7 @@ async def retrieve(
                 query=effective_query,
                 memory_types=memory_types,
                 statuses=statuses,
-                query_vector=query_vector,
+                query_vector=None,
                 purpose=purpose,
                 limit=limit,
             )
@@ -192,7 +192,11 @@ def apply_consent_filter(
         if hasattr(consent_record, "allows_read"):
             if consent_record.allows_read(r.memory_type, r.sensitivity):
                 filtered.append(r)
-        elif hasattr(consent_record, "check_read_access") and tenant_id is not None and subject_id is not None:
+        elif (
+            hasattr(consent_record, "check_read_access")
+            and tenant_id is not None
+            and subject_id is not None
+        ):
             try:
                 if consent_record.check_read_access(
                     tenant_id=tenant_id,

@@ -20,9 +20,8 @@ from agent_memory.application.remember import extract_memories
 from agent_memory.context import TenantContext
 from agent_memory.domain.consent import ConsentRecord
 from agent_memory.domain.memory import MemoryRecord, MemoryVersion
-from agent_memory.providers.in_memory_backend import InMemoryBackend
 from agent_memory.providers.fake_extractor import FakeExtractor
-
+from agent_memory.providers.in_memory_backend import InMemoryBackend
 
 SAMPLE_MESSAGES = [
     {"role": "user", "content": "I really enjoy drinking coffee in the morning."},
@@ -119,7 +118,9 @@ async def seed_in_memory(backend: InMemoryBackend, clear: bool = False) -> None:
 async def get_stats(backend: InMemoryBackend) -> dict:
     """Get simple stats from backend."""
     try:
-        memories = await backend.list_memories(tenant_id="default", subject_id="default", limit=1000)
+        memories = await backend.list_memories(
+            tenant_id="default", subject_id="default", limit=1000
+        )
         return {"total_memories": len(memories)}
     except Exception:
         return {"total_memories": 0}

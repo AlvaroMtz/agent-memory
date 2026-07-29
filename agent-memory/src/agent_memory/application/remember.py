@@ -5,11 +5,10 @@ Pipeline steps: filter → validate roles → extract → validate evidence → 
 
 from __future__ import annotations
 
-from agent_memory.constants import EXTRACTABLE_ROLES
+from agent_memory.constants import DEFAULT_MINIMUM_CONFIDENCE, EXTRACTABLE_ROLES
 from agent_memory.context import TenantContext
 from agent_memory.domain.candidate import MemoryCandidate
-from agent_memory.domain.evidence import Evidence, EvidenceValidationResult
-from agent_memory.domain.policies import validate_evidence, validate_extraction_role
+from agent_memory.domain.policies import validate_candidate, validate_extraction_role
 from agent_memory.ports.backend import MemoryBackend
 from agent_memory.ports.conflict import ConflictResolver
 from agent_memory.ports.consent import ConsentProvider
@@ -107,13 +106,22 @@ async def extract_memories(
         subject_id=subject_id,
     )
 
-    # Step 5: Validate evidence and score each candidate
+    # Step 5: Validate candidate policy and score each candidate.  This is
+    # intentionally fail-closed per candidate: invalid evidence, non-explicit
+    # claims, low confidence, or forged source roles are rejected before any
+    # caller can persist them.
     validated: list[MemoryCandidate] = []
     for candidate in candidates:
-        ev_result = validate_evidence(candidate, messages)
-        scored = score_candidate(candidate, messages)
-        if ev_result.is_valid:
-            validated.append(scored)
+        try:
+            validate_candidate(
+                candidate,
+                messages,
+                minimum_confidence=DEFAULT_MINIMUM_CONFIDENCE,
+                require_evidence=True,
+            )
+        except Exception:
+            continue
+        validated.append(score_candidate(candidate, messages))
 
     # Step 6: Contradiction detection and resolution
     if conflict_resolver is not None and backend is not None:
@@ -133,11 +141,21 @@ async def extract_memories(
                     break
                 elif action == "supersede":
                     await backend.update_memory_status(
-                        existing.id, "superseded", context=TenantContext(tenant_id=tenant_id),
+                        existing.id,
+                        "superseded",
+                        context=TenantContext(tenant_id=tenant_id),
                     )
                 elif action == "flag":
-                    # Mark existing as needing review
-                    pass  # pending_review handling deferred to human review
+                    # Semantic conflicts with equal authority must not become
+                    # active automatically.  Mark the existing record for
+                    # review and keep the candidate out of automatic activation.
+                    await backend.update_memory_status(
+                        existing.id,
+                        "pending_review",
+                        context=TenantContext(tenant_id=tenant_id),
+                    )
+                    skip_candidate = True
+                    break
             if not skip_candidate:
                 resolved.append(candidate)
         validated = resolved

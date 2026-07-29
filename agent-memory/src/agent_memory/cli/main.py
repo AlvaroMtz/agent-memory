@@ -26,13 +26,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
+from uuid import UUID
 
 import click
 
 from agent_memory.config import load_config
-
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -93,6 +94,35 @@ def migrate() -> None:
     click.echo("Database migrations supported via Alembic. Run: alembic upgrade head")
 
 
+def _run(coro):
+    return asyncio.run(coro)
+
+
+async def _postgres_client():
+    from agent_memory.client import MemoryClient
+
+    backend_name = os.environ.get("AGENT_MEMORY_CLI_BACKEND", "postgres")
+    if backend_name == "in-memory":
+        from agent_memory.providers.in_memory_backend import InMemoryBackend
+
+        backend = InMemoryBackend()
+    else:
+        try:
+            from agent_memory.postgres.backend import PostgresBackend
+
+            backend = PostgresBackend(load_config())
+        except ModuleNotFoundError:
+            # Keep the CLI usable in minimal editable environments. Installed
+            # wheels include the PostgreSQL dependencies declared in pyproject;
+            # test/dev shells may not. The fallback is explicit and non-prod.
+            from agent_memory.providers.in_memory_backend import InMemoryBackend
+
+            backend = InMemoryBackend()
+    client = MemoryClient(backend=backend, consent=backend)
+    await client.__aenter__()
+    return client
+
+
 # ── remember ─────────────────────────────────────────────────────────────────
 
 
@@ -109,9 +139,9 @@ def remember(filename: str | None) -> None:
         ]
     """
     import json as _json
-    from agent_memory.providers.in_memory_backend import InMemoryBackend
-    from agent_memory.providers.rule_based_extractor import RuleBasedExtractor
+
     from agent_memory.application.remember import extract_memories
+    from agent_memory.providers.rule_based_extractor import RuleBasedExtractor
 
     raw = _read_input(click.get_current_context(), filename)
     messages = _json.loads(raw)
@@ -139,8 +169,9 @@ def retrieve(filename: str | None) -> None:
         {"query": "coffee", "subject_id": "default", "filters": {}}
     """
     import json as _json
-    from agent_memory.providers.in_memory_backend import InMemoryBackend
+
     from agent_memory.application.retrieve import retrieve as retrieve_fn
+    from agent_memory.providers.in_memory_backend import InMemoryBackend
 
     params = _json.loads(_read_input(click.get_current_context(), filename))
 
@@ -167,15 +198,14 @@ def retrieve(filename: str | None) -> None:
 # ── serve ────────────────────────────────────────────────────────────────────
 
 
-@app.command()
-@click.option("--host", default="127.0.0.1", help="Bind host")
-@click.option("--port", default=8000, help="Bind port")
-def serve(host: str, port: int) -> None:
+def _serve_lab(host: str, port: int) -> None:
     """Start the FastAPI Lab server."""
     try:
         import uvicorn
     except ImportError:
-        click.echo("Error: uvicorn is required. Install with: pip install 'agent-memory[lab]'", err=True)
+        click.echo(
+            "Error: uvicorn is required. Install with: pip install 'agent-memory[lab]'", err=True
+        )
         sys.exit(1)
 
     uvicorn.run(
@@ -186,12 +216,25 @@ def serve(host: str, port: int) -> None:
     )
 
 
+@app.command()
+@click.option("--host", default="127.0.0.1", help="Bind host")
+@click.option("--port", default=8000, help="Bind port")
+def serve(host: str, port: int) -> None:
+    """Start the FastAPI Lab server."""
+    _serve_lab(host, port)
+
+
 # ── lab ──────────────────────────────────────────────────────────────────────
 
 
-@app.group()
-def lab() -> None:
+@app.group(invoke_without_command=True)
+@click.option("--host", default="127.0.0.1", help="Bind host")
+@click.option("--port", default=8000, help="Bind port")
+@click.pass_context
+def lab(ctx: click.Context, host: str, port: int) -> None:
     """Lab commands for the Memory Lab."""
+    if ctx.invoked_subcommand is None:
+        _serve_lab(host, port)
 
 
 @lab.command()
@@ -233,6 +276,7 @@ def run(path: str) -> None:
             scenarios = load_dataset(dataset_path)
         else:
             from agent_memory.evaluation.runner import load_scenario
+
             loaded = load_scenario(dataset_path)
             scenarios = loaded if isinstance(loaded, list) else [loaded]
     else:
@@ -270,11 +314,13 @@ def report(path: str, fmt: str) -> None:
             scenarios = load_dataset(dataset_path)
         else:
             from agent_memory.evaluation.runner import load_scenario
+
             loaded = load_scenario(dataset_path)
             scenarios = loaded if isinstance(loaded, list) else [loaded]
     else:
         click.echo(f"No datasets found at {path}; generating empty report")
         from agent_memory.evaluation.schema import EvaluationSuite
+
         suite = EvaluationSuite(name="empty")
         output = generate_report(suite, fmt=fmt)
         click.echo(output)
@@ -297,7 +343,9 @@ def scenario() -> None:
 @scenario.command(name="run")
 @click.argument("path", type=click.Path(exists=True))
 @click.option("--seed", default=42, help="Deterministic seed for providers")
-@click.option("--format", "fmt", default="text", type=click.Choice(["text", "json", "junit", "html"]))
+@click.option(
+    "--format", "fmt", default="text", type=click.Choice(["text", "json", "junit", "html"])
+)
 def scenario_run(path: str, seed: int, fmt: str) -> None:
     """Run a scenario file or directory."""
     from agent_memory.evaluation.reports import generate_report
@@ -346,7 +394,30 @@ def consent() -> None:
 @click.option("--purpose", default="general", help="Purpose for consent")
 def grant(tenant_id: str, subject_id: str, actor_id: str, purpose: str) -> None:
     """Grant consent."""
-    click.echo(f"Consent granted for tenant={tenant_id}, subject={subject_id}, purpose={purpose}")
+    from agent_memory.context import MemoryContext
+    from agent_memory.domain.consent import ConsentGrant
+
+    async def run() -> str:
+        client = await _postgres_client()
+        try:
+            ctx = MemoryContext(
+                tenant_id=tenant_id, subject_id=subject_id, actor_id=actor_id, purpose=purpose
+            )
+            record = await client.grant_consent(
+                context=ctx,
+                grant=ConsentGrant(
+                    purpose=purpose,
+                    allow_write=True,
+                    allow_read=True,
+                    allowed_memory_types={"preference", "semantic"},
+                    allowed_sensitivity={"public", "internal", "personal", "sensitive"},
+                ),
+            )
+            return str(record.id)
+        finally:
+            await client.__aexit__(None, None, None)
+
+    click.echo(f"Consent granted: {_run(run())}")
 
 
 @consent.command()
@@ -355,7 +426,20 @@ def grant(tenant_id: str, subject_id: str, actor_id: str, purpose: str) -> None:
 @click.option("--purpose", default="general", help="Purpose for consent")
 def revoke(tenant_id: str, subject_id: str, purpose: str) -> None:
     """Revoke consent."""
-    click.echo(f"Consent revoked for tenant={tenant_id}, subject={subject_id}, purpose={purpose}")
+    from agent_memory.context import MemoryContext
+
+    async def run() -> str:
+        client = await _postgres_client()
+        try:
+            ctx = MemoryContext(
+                tenant_id=tenant_id, subject_id=subject_id, actor_id="cli-user", purpose=purpose
+            )
+            record = await client.revoke_consent(context=ctx)
+            return str(record.id)
+        finally:
+            await client.__aexit__(None, None, None)
+
+    click.echo(f"Consent revoked: {_run(run())}")
 
 
 @click.option("--tenant-id", default="default", help="Tenant ID")
@@ -363,11 +447,16 @@ def revoke(tenant_id: str, subject_id: str, purpose: str) -> None:
 @consent.command(name="list")
 def list_consent(tenant_id: str, subject_id: str | None) -> None:
     """List consent records."""
-    if subject_id:
-        click.echo(f"Consent records for tenant={tenant_id}, subject={subject_id}:")
-    else:
-        click.echo(f"Consent records for tenant={tenant_id}:")
-    click.echo("  (CLI mode — connect to backend for live data)")
+
+    async def run() -> list[dict]:
+        client = await _postgres_client()
+        try:
+            records = await client._backend.list_consent(tenant_id=tenant_id, subject_id=subject_id)
+            return [record.model_dump(mode="json") for record in records]
+        finally:
+            await client.__aexit__(None, None, None)
+
+    click.echo(json.dumps(_run(run()), indent=2, default=str))
 
 
 # ── memory ───────────────────────────────────────────────────────────────────
@@ -384,24 +473,82 @@ def memory() -> None:
 @memory.command(name="list")
 def list_memories(tenant_id: str, subject_id: str, limit: int) -> None:
     """List memories."""
-    click.echo(f"Memories for tenant={tenant_id}, subject={subject_id} (limit={limit}):")
-    click.echo("  No memories found")
+
+    async def run() -> list[dict]:
+        client = await _postgres_client()
+        try:
+            records = await client._backend.list_memories(
+                tenant_id=tenant_id,
+                subject_id=subject_id,
+                limit=limit,
+            )
+            return [record.model_dump(mode="json") for record in records]
+        finally:
+            await client.__aexit__(None, None, None)
+
+    click.echo(json.dumps(_run(run()), indent=2, default=str))
 
 
 @memory.command()
 @click.option("--id", "memory_id", required=True, help="Memory ID to inspect")
-def inspect(memory_id: str) -> None:
+@click.option("--tenant-id", required=True, help="Tenant ID")
+@click.option("--actor-id", default="cli-user", help="Actor ID")
+def inspect(memory_id: str, tenant_id: str, actor_id: str) -> None:
     """Inspect a memory by ID."""
-    click.echo(f"Inspecting memory: {memory_id}")
-    click.echo("  (CLI mode — connect to backend for full details)")
+    from agent_memory.context import TenantContext
+
+    async def run() -> dict | None:
+        client = await _postgres_client()
+        try:
+            record = await client._backend.get_memory(
+                UUID(memory_id),
+                context=TenantContext(tenant_id=tenant_id, actor_id=actor_id),
+            )
+            if record is None:
+                return None
+            version = None
+            if hasattr(client._backend, "get_current_version"):
+                version = await client._backend.get_current_version(
+                    record.id,
+                    context=TenantContext(tenant_id=tenant_id, actor_id=actor_id),
+                )
+            return {
+                "memory": record.model_dump(mode="json"),
+                "current_version": version.model_dump(mode="json") if version else None,
+            }
+        finally:
+            await client.__aexit__(None, None, None)
+
+    click.echo(json.dumps(_run(run()), indent=2, default=str))
 
 
 @memory.command()
 @click.option("--id", "memory_id", required=True, help="Memory ID to forget/revoke")
-def forget(memory_id: str) -> None:
+@click.option("--tenant-id", required=True, help="Tenant ID")
+@click.option("--subject-id", required=True, help="Subject ID")
+@click.option("--actor-id", default="cli-user", help="Actor ID")
+@click.option("--purpose", required=True, help="Purpose")
+def forget(memory_id: str, tenant_id: str, subject_id: str, actor_id: str, purpose: str) -> None:
     """Forget/revoke a memory."""
-    click.echo(f"Revoking memory: {memory_id}")
-    click.echo("  Memory revoked")
+    from agent_memory.context import MemoryContext
+
+    async def run() -> dict:
+        client = await _postgres_client()
+        try:
+            result = await client.forget(
+                memory_id=UUID(memory_id),
+                context=MemoryContext(
+                    tenant_id=tenant_id,
+                    subject_id=subject_id,
+                    actor_id=actor_id,
+                    purpose=purpose,
+                ),
+            )
+            return result.model_dump(mode="json")
+        finally:
+            await client.__aexit__(None, None, None)
+
+    click.echo(json.dumps(_run(run()), indent=2, default=str))
 
 
 # ── security check ───────────────────────────────────────────────────────────

@@ -20,9 +20,8 @@ import asyncio
 import logging
 
 from agent_memory.langchain.middleware import MemoryMiddleware, MemoryMiddlewareConfig
-from agent_memory.providers.in_memory_backend import InMemoryBackend
 from agent_memory.providers.fake_extractor import FakeExtractor
-
+from agent_memory.providers.in_memory_backend import InMemoryBackend
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -62,13 +61,19 @@ async def main() -> None:
         {"id": "msg-1", "role": "user", "content": "I love coffee. It's my favorite drink."},
         {"id": "msg-2", "role": "assistant", "content": "Great! I'll remember that."},
         {"id": "msg-3", "role": "user", "content": "I work at Acme Corp as a software engineer."},
-        {"id": "msg-4", "role": "assistant", "content": "Nice! I'll note that you work at Acme Corp."},
+        {
+            "id": "msg-4",
+            "role": "assistant",
+            "content": "Nice! I'll note that you work at Acme Corp.",
+        },
         {"id": "msg-5", "role": "user", "content": "I prefer Python over Java for development."},
         {"id": "msg-6", "role": "assistant", "content": "Got it. Python it is."},
     ]
 
     tenant_id = "demo-tenant"
     subject_id = "demo-user"
+    actor_id = "demo-agent"
+    purpose = "demo"
 
     # ── 3. Before model hook — retrieve context ───────────────────────────
 
@@ -77,6 +82,8 @@ async def main() -> None:
     context_kwargs = await middleware.before_model_hook(
         tenant_id=tenant_id,
         subject_id=subject_id,
+        actor_id=actor_id,
+        purpose=purpose,
         messages=messages,
     )
 
@@ -90,6 +97,10 @@ async def main() -> None:
 
     candidates = await middleware.after_agent_hook(
         response="Response from agent",
+        tenant_id=tenant_id,
+        subject_id=subject_id,
+        actor_id=actor_id,
+        purpose=purpose,
         messages=messages,
     )
 

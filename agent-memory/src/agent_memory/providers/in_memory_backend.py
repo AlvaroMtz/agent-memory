@@ -6,12 +6,12 @@ NOT suitable for production — for tests and development only.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 from agent_memory.context import TenantContext
 from agent_memory.domain.audit import AuditEvent, AuditQuery
-from agent_memory.domain.consent import ConsentGrant, ConsentRecord
+from agent_memory.domain.consent import ConsentRecord
 from agent_memory.domain.memory import MemoryRecord, MemoryVersion
 from agent_memory.domain.retrieval import RetrievedMemory
 from agent_memory.exceptions import (
@@ -84,8 +84,21 @@ class InMemoryBackend:
             raise TenantIsolationError("Tenant mismatch")
         self._versions[(memory_id, version.version)] = version
         record.current_version = version.version
-        record.updated_at = datetime.now(timezone.utc)
+        record.updated_at = datetime.now(UTC)
         return version
+
+    async def get_current_version(
+        self,
+        memory_id: UUID,
+        *,
+        context: TenantContext,
+    ) -> MemoryVersion | None:
+        record = self._memories.get(memory_id)
+        if not record:
+            return None
+        if record.tenant_id != context.tenant_id:
+            raise TenantIsolationError("Tenant mismatch")
+        return self._versions.get((memory_id, record.current_version))
 
     async def update_memory_status(
         self,
@@ -100,7 +113,7 @@ class InMemoryBackend:
         if record.tenant_id != context.tenant_id:
             raise TenantIsolationError("Tenant mismatch")
         record.status = status  # type: ignore
-        record.updated_at = datetime.now(timezone.utc)
+        record.updated_at = datetime.now(UTC)
 
     async def list_memories(
         self,
@@ -126,7 +139,7 @@ class InMemoryBackend:
             if status and record.status != status:
                 continue
             results.append(record)
-        return results[offset:offset + limit]
+        return results[offset : offset + limit]
 
     # ── Retrieval ───────────────────────────────────────────────────────────
 
@@ -143,10 +156,10 @@ class InMemoryBackend:
         limit: int = 8,
         token_budget: int = 1200,
     ) -> list[RetrievedMemory]:
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         results: list[RetrievedMemory] = []
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         for record in self._memories.values():
             if record.tenant_id != tenant_id:
@@ -231,6 +244,7 @@ class InMemoryBackend:
 
         try:
             import numpy as np
+
             all_words = list(query_words | version_words)
             if not all_words:
                 return 0.0
@@ -354,7 +368,7 @@ class InMemoryBackend:
             if query.outcome and event.outcome != query.outcome:
                 continue
             results.append(event)
-        return results[-query.limit:] if results else []
+        return results[-query.limit :] if results else []
 
     # ── Health ──────────────────────────────────────────────────────────────
 

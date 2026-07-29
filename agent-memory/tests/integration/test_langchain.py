@@ -6,16 +6,11 @@ integration without requiring actual LangChain installation.
 
 from __future__ import annotations
 
-import uuid
-from datetime import datetime, timezone
 from typing import Any
 
 import pytest
 
-from agent_memory.context import MemoryContext, TenantContext
-from agent_memory.domain.candidate import MemoryCandidate
-from agent_memory.domain.memory import MemoryRecord, MemoryVersion
-from agent_memory.domain.retrieval import RetrievedMemory, RetrievalResult
+from agent_memory.context import MemoryContext
 from agent_memory.langchain.context import ContextAdapter
 from agent_memory.langchain.middleware import MemoryMiddleware, MemoryMiddlewareConfig
 from agent_memory.langchain.store_adapter import AgentMemoryStoreAdapter
@@ -28,14 +23,15 @@ from agent_memory.langchain.tools import (
 )
 from agent_memory.providers.in_memory_backend import InMemoryBackend
 
-
 # ── Mock LangChain objects ──────────────────────────────────────────────────
 
 
 class MockRunnableConfig:
     """Mock LangChain RunnableConfig for testing."""
 
-    def __init__(self, metadata: dict[str, Any] | None = None, tags: list[str] | None = None) -> None:
+    def __init__(
+        self, metadata: dict[str, Any] | None = None, tags: list[str] | None = None
+    ) -> None:
         self.metadata = metadata or {}
         self.tags = tags or []
 
@@ -140,6 +136,8 @@ class TestMemoryMiddleware:
         result = await middleware.before_model_hook(
             tenant_id="test-tenant",
             subject_id="test-user",
+            actor_id="test-actor",
+            purpose="testing",
         )
         assert "_memory_context" in result
         assert "retrieved_memories" in result["_memory_context"]
@@ -164,15 +162,25 @@ class TestMemoryMiddleware:
     async def test_callback_context(self, middleware: MemoryMiddleware):
         """Context manager works end-to-end."""
         async with middleware.callback_context(
-            tenant_id="t", subject_id="s", messages=[]
+            tenant_id="t", subject_id="s", actor_id="a", purpose="p", messages=[]
         ):
             pass  # Should not raise
 
     async def test_context_selector(self, middleware: MemoryMiddleware):
         """Custom context_selector is used."""
-        middleware.config.context_selector = lambda kwargs: ("custom-tenant", "custom-user")
+        middleware.config.context_selector = lambda _: MemoryContext(
+            tenant_id="custom-tenant",
+            subject_id="custom-user",
+            actor_id="custom-actor",
+            purpose="testing",
+        )
         result = await middleware.before_model_hook()
         assert "_memory_context" in result
+
+    async def test_missing_context_fails_closed(self, middleware: MemoryMiddleware):
+        """Missing authenticated context must fail closed instead of defaulting."""
+        with pytest.raises(Exception, match="tenant_id|required|actor_id|purpose"):
+            await middleware.before_model_hook()
 
 
 class TestContextAdapter:
@@ -353,6 +361,7 @@ class TestToolsIntegration:
 
     def test_trusted_tool_decorator_sync(self):
         """Sync function decorated with trust_tool_output."""
+
         @trust_tool_output("test_tool")
         def sync_func() -> dict:
             return {"result": "ok"}
@@ -363,6 +372,7 @@ class TestToolsIntegration:
 
     def test_trusted_tool_decorator_async(self):
         """Async function decorated with trust_tool_output."""
+
         @trust_tool_output("async_tool")
         async def async_func() -> dict:
             return {"result": "async-ok"}

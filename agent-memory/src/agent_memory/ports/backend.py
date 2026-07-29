@@ -8,9 +8,9 @@ from __future__ import annotations
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
-from agent_memory.context import MemoryContext, TenantContext
+from agent_memory.context import TenantContext
 from agent_memory.domain.audit import AuditEvent, AuditQuery
-from agent_memory.domain.consent import ConsentGrant, ConsentRecord
+from agent_memory.domain.consent import ConsentRecord
 from agent_memory.domain.memory import MemoryRecord, MemoryVersion
 from agent_memory.domain.retrieval import RetrievedMemory
 
@@ -60,6 +60,15 @@ class MemoryBackend(Protocol):
         context: TenantContext,
     ) -> MemoryVersion:
         """Add a new version to an existing memory record."""
+        ...
+
+    async def get_current_version(
+        self,
+        memory_id: UUID,
+        *,
+        context: TenantContext,
+    ) -> MemoryVersion | None:
+        """Get the current immutable version for a tenant-scoped memory."""
         ...
 
     async def update_memory_status(

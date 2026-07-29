@@ -86,11 +86,13 @@ class MemoryConfig(BaseSettings):
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
     encryption: EncryptionConfig = Field(default_factory=EncryptionConfig)
 
-    evaluation: dict = Field(default_factory=lambda: {
-        "datasets_path": "./datasets",
-        "seed": 42,
-        "fail_on_gate_violation": True,
-    })
+    evaluation: dict = Field(
+        default_factory=lambda: {
+            "datasets_path": "./datasets",
+            "seed": 42,
+            "fail_on_gate_violation": True,
+        }
+    )
 
     @classmethod
     def settings_customise_sources(
@@ -127,21 +129,34 @@ class MemoryConfig(BaseSettings):
                 f"Use 'aes-gcm' or another production-grade provider."
             )
 
+        if self.extraction.provider in {"fake", "rules"}:
+            errors.append(
+                f"Extraction provider '{self.extraction.provider}' is forbidden as the primary provider in production"
+            )
+
+        if self.embeddings.provider == "deterministic":
+            errors.append("Deterministic embeddings are test/demo-only and forbidden in production")
+
         if not self.tenant.postgres_rls:
             errors.append("PostgreSQL RLS is required in production")
+
+        if self.tenant.isolation != "strict":
+            errors.append("Tenant isolation must be 'strict' in production")
 
         if self.consent.default != "deny":
             errors.append("Consent default must be 'deny' in production")
 
         if errors:
             raise ConfigurationError(
-                f"Production configuration validation failed:\n" + "\n".join(f"  - {e}" for e in errors)
+                "Production configuration validation failed:\n"
+                + "\n".join(f"  - {e}" for e in errors)
             )
 
 
 def load_config(path: str | Path | None = None) -> MemoryConfig:
     """Load memory configuration from a YAML file or environment variables."""
     if path:
+
         class PathMemoryConfig(MemoryConfig):
             model_config = SettingsConfigDict(
                 **{**MemoryConfig.model_config, "yaml_file": str(path)}

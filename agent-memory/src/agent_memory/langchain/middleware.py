@@ -7,14 +7,17 @@ and extraction during agent conversation loops.
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Coroutine, TypeVar
+from collections.abc import Callable
+from typing import Any, TypeVar
+from uuid import uuid4
 
 from agent_memory.application.remember import extract_memories
 from agent_memory.application.retrieve import retrieve as app_retrieve
 from agent_memory.constants import DEFAULT_TOP_K
+from agent_memory.context import MemoryContext
 from agent_memory.domain.candidate import MemoryCandidate
 from agent_memory.domain.retrieval import RetrievalResult
-from agent_memory.exceptions import MemoryNotFoundError
+from agent_memory.exceptions import ContextError
 from agent_memory.ports.backend import MemoryBackend
 from agent_memory.ports.consent import ConsentProvider
 from agent_memory.ports.embedder import EmbeddingProvider
@@ -31,8 +34,8 @@ class MemoryMiddlewareConfig:
     Attributes:
         enabled: Master switch for memory operations.
         auto_extract: If True, automatically extract memories after model calls.
-        context_selector: Optional callable that extracts
-            (tenant_id, subject_id) from the LangChain runnable config.
+        context_selector: Optional callable that extracts a MemoryContext from
+            the LangChain runnable config.
         top_k: Maximum number of memories to inject as context (default 8).
         max_tokens: Maximum token budget for retrieved memories (default 1200).
     """
@@ -42,7 +45,7 @@ class MemoryMiddlewareConfig:
         *,
         enabled: bool = True,
         auto_extract: bool = True,
-        context_selector: Callable[[dict[str, Any]], tuple[str, str]] | None = None,
+        context_selector: Callable[[dict[str, Any]], MemoryContext] | None = None,
         top_k: int = DEFAULT_TOP_K,
         max_tokens: int = 1200,
     ) -> None:
@@ -125,26 +128,33 @@ class MemoryMiddleware:
             kwargs.setdefault("_memory_context", {"retrieved_memories": []})
             return kwargs
 
-        tenant_id, subject_id = self._extract_context(kwargs)
+        memory_context = self._extract_context(kwargs)
 
         # Build filters from kwargs if present
         filters: dict[str, Any] | None = kwargs.get("filters")
 
         try:
+            filters = dict(filters or {})
+            filters.setdefault("purpose", memory_context.purpose)
             result: RetrievalResult = await app_retrieve(
-                tenant_id=tenant_id,
-                subject_id=subject_id,
+                tenant_id=memory_context.tenant_id,
+                subject_id=memory_context.subject_id,
                 filters=filters,
                 backend=self.backend,
                 embedder=self.embedder,
                 consent=self.consent,
                 max_tokens=self.config.max_tokens,
             )
+        except ContextError:
+            raise
         except Exception:
             logger.exception("Memory retrieval failed in before_model_hook")
             result = RetrievalResult(
-                query="", results=[], total_count=0,
-                token_count=0, token_budget=self.config.max_tokens,
+                query="",
+                results=[],
+                total_count=0,
+                token_count=0,
+                token_budget=self.config.max_tokens,
             )
 
         kwargs.setdefault("_memory_context", {})
@@ -180,16 +190,18 @@ class MemoryMiddleware:
             logger.warning("No messages provided to after_agent_hook")
             return []
 
-        tenant_id, subject_id = self._extract_context(kwargs)
+        memory_context = self._extract_context(kwargs)
 
         try:
             candidates = await extract_memories(
                 messages=messages,
-                subject_id=subject_id,
-                tenant_id=tenant_id,
+                subject_id=memory_context.subject_id,
+                tenant_id=memory_context.tenant_id,
                 extractor=self.extractor,
                 consent=self.consent,
             )
+        except ContextError:
+            raise
         except Exception:
             logger.exception("Memory extraction failed in after_agent_hook")
             return []
@@ -198,24 +210,30 @@ class MemoryMiddleware:
 
     # ── Context extraction ──────────────────────────────────────────────────
 
-    def _extract_context(
-        self, kwargs: dict[str, Any]
-    ) -> tuple[str, str]:
-        """Determine (tenant_id, subject_id) from the runnable config.
+    def _extract_context(self, kwargs: dict[str, Any]) -> MemoryContext:
+        """Determine the authenticated MemoryContext from runnable config.
 
         Uses the configured ``context_selector`` if available, otherwise
         falls back to reading keys from ``kwargs``.
 
-        Returns:
-            (tenant_id, subject_id) tuple.
+        Fail-closed: missing tenant, subject, actor, or purpose raises during
+        MemoryContext construction.  The middleware must never invent defaults
+        because tenant and actor identity are security inputs, not model data.
         """
         if self.config.context_selector:
             return self.config.context_selector(kwargs)
 
-        # Default extraction from kwargs
-        tenant_id = kwargs.get("tenant_id", "default-tenant")
-        subject_id = kwargs.get("subject_id", kwargs.get("agent_id", "default-user"))
-        return tenant_id, subject_id
+        context_candidate = kwargs.get("memory_context") or kwargs.get("context")
+        if isinstance(context_candidate, MemoryContext):
+            return context_candidate
+
+        return MemoryContext(
+            tenant_id=kwargs.get("tenant_id", ""),
+            subject_id=kwargs.get("subject_id", ""),
+            actor_id=kwargs.get("actor_id", ""),
+            purpose=kwargs.get("purpose", ""),
+            request_id=kwargs.get("request_id") or uuid4().hex[:16],
+        )
 
     # ── Context manager (optional) ──────────────────────────────────────────
 
