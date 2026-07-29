@@ -1,0 +1,202 @@
+# Mandatory retrieval test cases per AC-3 spec
+# Every required dataset scenario MUST have at least one assertion capable of failing.
+
+scenarios:
+  # 1. Exact query
+  - name: retrieval-exact-query
+    description: Exact query should find matching memory
+    context: {tenant_id: t1, subject_id: s1, purpose: general}
+    consent: {purpose: general, allow_write: true, allow_read: true, allowed_memory_types: [preference, semantic], allowed_sensitivity: [public, internal]}
+    messages:
+      - {id: m1, role: user, content: "I prefer Python."}
+    expected_candidates:
+      - {memory_type: preference, subject_key: code, predicate: code_language, value: Python}
+    expected_accepted_candidates:
+      - {memory_type: preference, subject_key: code, predicate: code_language, value: Python}
+    expected_memories: [{memory_type: preference, subject_key: code, predicate: code_language, status: active}]
+    expected_queries:
+      - {description: "Python", query: "Python", memory_type: preference, min_results: 1}
+
+  # 2. Paraphrase query
+  - name: retrieval-paraphrase-query
+    description: Paraphrased query should still find relevant memory
+    context: {tenant_id: t1, subject_id: s1, purpose: general}
+    consent: {purpose: general, allow_write: true, allow_read: true, allowed_memory_types: [preference], allowed_sensitivity: [public, internal]}
+    messages:
+      - {id: m1, role: user, content: "My favorite programming language is Python."}
+    expected_candidates:
+      - {memory_type: semantic, subject_key: programming, predicate: favorite_language, value: Python}
+    expected_accepted_candidates:
+      - {memory_type: semantic, subject_key: programming, predicate: favorite_language, value: Python}
+    expected_memories: [{memory_type: semantic, subject_key: programming, predicate: favorite_language, status: active}]
+    expected_queries:
+      - {description: "best language", query: "best language", memory_type: semantic, min_results: 1}
+
+  # 3. Irrelevant query
+  - name: retrieval-irrelevant-query
+    description: Irrelevant query should not return unrelated memories
+    context: {tenant_id: t1, subject_id: s1, purpose: general}
+    consent: {purpose: general, allow_write: true, allow_read: true, allowed_memory_types: [preference], allowed_sensitivity: [public, internal]}
+    messages:
+      - {id: m1, role: user, content: "I prefer Python."}
+    expected_candidates:
+      - {memory_type: preference, subject_key: code, predicate: code_language, value: Python}
+    expected_accepted_candidates:
+      - {memory_type: preference, subject_key: code, predicate: code_language, value: Python}
+    expected_memories: [{memory_type: preference, subject_key: code, predicate: code_language, status: active}]
+    expected_queries:
+      - {description: "favorite food", query: "favorite food", memory_type: preference, max_results: 0}
+
+  # 4. Multiple relevant memories
+  - name: retrieval-multiple-relevant-memories
+    description: Multiple relevant memories should all be returned
+    context: {tenant_id: t1, subject_id: s1, purpose: general}
+    consent: {purpose: general, allow_write: true, allow_read: true, allowed_memory_types: [preference, semantic], allowed_sensitivity: [public, internal]}
+    messages:
+      - {id: m1, role: user, content: "I prefer Python."}
+      - {id: m2, role: user, content: "My name is Alice."}
+    expected_candidates:
+      - {memory_type: preference, subject_key: code, predicate: code_language, value: Python}
+      - {memory_type: semantic, subject_key: user, predicate: name, value: Alice}
+    expected_accepted_candidates:
+      - {memory_type: preference, subject_key: code, predicate: code_language, value: Python}
+      - {memory_type: semantic, subject_key: user, predicate: name, value: Alice}
+    expected_memories:
+      - {memory_type: preference, subject_key: code, predicate: code_language, status: active}
+      - {memory_type: semantic, subject_key: user, predicate: name, status: active}
+    expected_queries:
+      - {description: "name", query: "name", memory_type: semantic, min_results: 1}
+
+  # 5. Old memory (superseded)
+  - name: retrieval-old-memory
+    description: Superseded memories should not appear in retrieval
+    context: {tenant_id: t1, subject_id: s1, purpose: general}
+    consent: {purpose: general, allow_write: true, allow_read: true, allowed_memory_types: [preference], allowed_sensitivity: [public, internal]}
+    messages:
+      - {id: m1, role: user, content: "I prefer Python."}
+    expected_candidates:
+      - {memory_type: preference, subject_key: code, predicate: code_language, value: Python}
+    expected_accepted_candidates:
+      - {memory_type: preference, subject_key: code, predicate: code_language, value: Python}
+    expected_memories: [{memory_type: preference, subject_key: code, predicate: code_language, status: active}]
+    setup_actions:
+      - {action: set_memory_status, memory_type: preference, subject_key: code, predicate: code_language, status: superseded}
+    expected_queries:
+      - {description: "Python after supersession", query: "Python", memory_type: preference, max_results: 0}
+
+  # 6. Superseded memory excluded (replaced by new)
+  - name: retrieval-superseded-memory-excluded
+    description: When old memory is superseded by new one, only new should appear
+    context: {tenant_id: t1, subject_id: s1, purpose: general}
+    consent: {purpose: general, allow_write: true, allow_read: true, allowed_memory_types: [preference], allowed_sensitivity: [public, internal]}
+    messages:
+      - {id: m1, role: user, content: "I prefer Python."}
+      - {id: m2, role: user, content: "Actually, I prefer TypeScript now."}
+    expected_candidates:
+      - {memory_type: preference, subject_key: code, predicate: code_language, value: TypeScript, explicitly_stated: true}
+    expected_accepted_candidates:
+      - {memory_type: preference, subject_key: code, predicate: code_language, value: TypeScript}
+    expected_memories:
+      - {memory_type: preference, subject_key: code, predicate: code_language, status: active}
+    expected_queries:
+      - {description: "Python superseded", query: "Python", memory_type: preference, max_results: 0}
+
+  # 7. Revoked memory excluded
+  - name: retrieval-revoked-memory-excluded
+    description: Revoked memories should not be returned
+    context: {tenant_id: t1, subject_id: s1, purpose: general}
+    consent: {purpose: general, allow_write: true, allow_read: true, allowed_memory_types: [preference], allowed_sensitivity: [public, internal]}
+    messages:
+      - {id: m1, role: user, content: "I prefer Python."}
+    expected_candidates:
+      - {memory_type: preference, subject_key: code, predicate: code_language, value: Python}
+    expected_accepted_candidates:
+      - {memory_type: preference, subject_key: code, predicate: code_language, value: Python}
+    expected_memories: [{memory_type: preference, subject_key: code, predicate: code_language, status: active}]
+    setup_actions:
+      - {action: set_memory_status, memory_type: preference, subject_key: code, predicate: code_language, status: revoked}
+    expected_queries:
+      - {description: "Python after revocation", query: "Python", memory_type: preference, max_results: 0}
+
+  # 8. Expired memory excluded
+  - name: retrieval-expired-memory-excluded
+    description: Expired memories should not be returned
+    context: {tenant_id: t1, subject_id: s1, purpose: general}
+    consent: {purpose: general, allow_write: true, allow_read: true, allowed_memory_types: [preference], allowed_sensitivity: [public, internal]}
+    messages:
+      - {id: m1, role: user, content: "I prefer Python."}
+    expected_candidates:
+      - {memory_type: preference, subject_key: code, predicate: code_language, value: Python}
+    expected_accepted_candidates:
+      - {memory_type: preference, subject_key: code, predicate: code_language, value: Python}
+    expected_memories: [{memory_type: preference, subject_key: code, predicate: code_language, status: active}]
+    setup_actions:
+      - {action: set_memory_status, memory_type: preference, subject_key: code, predicate: code_language, status: expired}
+    expected_queries:
+      - {description: "Python after expiry", query: "Python", memory_type: preference, max_results: 0}
+
+  # 9. Token budget enforced
+  - name: retrieval-token-budget-enforced
+    description: Token budget should limit results
+    context: {tenant_id: t1, subject_id: s1, purpose: general}
+    consent: {purpose: general, allow_write: true, allow_read: true, allowed_memory_types: [preference, semantic], allowed_sensitivity: [public, internal]}
+    messages:
+      - {id: m1, role: user, content: "I prefer Python."}
+      - {id: m2, role: user, content: "My name is Alice."}
+    expected_candidates:
+      - {memory_type: preference, subject_key: code, predicate: code_language, value: Python}
+      - {memory_type: semantic, subject_key: user, predicate: name, value: Alice}
+    expected_accepted_candidates:
+      - {memory_type: preference, subject_key: code, predicate: code_language, value: Python}
+      - {memory_type: semantic, subject_key: user, predicate: name, value: Alice}
+    expected_memories:
+      - {memory_type: preference, subject_key: code, predicate: code_language, status: active}
+      - {memory_type: semantic, subject_key: user, predicate: name, status: active}
+
+  # 10. Purpose filter
+  - name: retrieval-purpose-filter
+    description: Purpose filter should restrict results
+    context: {tenant_id: t1, subject_id: s1, purpose: general}
+    consent: {purpose: general, allow_write: true, allow_read: true, allowed_memory_types: [preference], allowed_sensitivity: [public, internal]}
+    messages:
+      - {id: m1, role: user, content: "I prefer Python."}
+    expected_candidates:
+      - {memory_type: preference, subject_key: code, predicate: code_language, value: Python}
+    expected_accepted_candidates:
+      - {memory_type: preference, subject_key: code, predicate: code_language, value: Python}
+    expected_memories: [{memory_type: preference, subject_key: code, predicate: code_language, status: active}]
+    expected_queries:
+      - {description: "Python under general purpose", query: "Python", memory_type: preference, min_results: 1}
+
+  # 11. Type filter
+  - name: retrieval-type-filter
+    description: Type filter should restrict results
+    context: {tenant_id: t1, subject_id: s1, purpose: general}
+    consent: {purpose: general, allow_write: true, allow_read: true, allowed_memory_types: [preference, semantic], allowed_sensitivity: [public, internal]}
+    messages:
+      - {id: m1, role: user, content: "I prefer Python."}
+      - {id: m2, role: user, content: "My name is Alice."}
+    expected_candidates:
+      - {memory_type: preference, subject_key: code, predicate: code_language, value: Python}
+      - {memory_type: semantic, subject_key: user, predicate: name, value: Alice}
+    expected_accepted_candidates:
+      - {memory_type: preference, subject_key: code, predicate: code_language, value: Python}
+      - {memory_type: semantic, subject_key: user, predicate: name, value: Alice}
+    expected_memories:
+      - {memory_type: preference, subject_key: code, predicate: code_language, status: active}
+      - {memory_type: semantic, subject_key: user, predicate: name, status: active}
+    expected_queries:
+      - {description: "only preferences", memory_type: preference, min_results: 1, max_results: 1}
+
+  # 12. Sensitivity filter
+  - name: retrieval-sensitivity-filter
+    description: Sensitivity filter should restrict results
+    context: {tenant_id: t1, subject_id: s1, purpose: general}
+    consent: {purpose: general, allow_write: true, allow_read: true, allowed_memory_types: [preference], allowed_sensitivity: [public, internal, personal]}
+    messages:
+      - {id: m1, role: user, content: "I prefer Python."}
+    expected_candidates:
+      - {memory_type: preference, subject_key: code, predicate: code_language, value: Python}
+    expected_accepted_candidates:
+      - {memory_type: preference, subject_key: code, predicate: code_language, value: Python}
+    expected_memories: [{memory_type: preference, subject_key: code, predicate: code_language, status: active}]
