@@ -1,0 +1,175 @@
+# Consent revoke scenario — consent revocation and post-revoke access denial
+
+scenarios:
+  - name: revoke_consent_blocks_read
+    description: >
+      Grant full consent, write a memory, then revoke consent.
+      After revocation, read operations are denied.
+    context:
+      tenant_id: tenant-a
+      subject_id: subject-1
+      actor_id: actor-1
+      purpose: profiling
+
+    consent:
+      purpose: profiling
+      allow_write: true
+      allow_read: true
+      allowed_memory_types:
+        - preference
+      allowed_sensitivity:
+        - public
+        - internal
+
+    messages:
+      - id: msg-1
+        role: user
+        content: I like terse answers.
+
+    expected_candidates:
+      - memory_type: preference
+        subject_key: response
+        predicate: response_length
+        value: terse
+        source_message_id: msg-1
+        explicitly_stated: true
+        sensitivity: public
+
+    expected_memories:
+      - memory_type: preference
+        subject_key: response
+        predicate: response_length
+        value: terse
+        status: active
+        version: 1
+
+
+  - name: revoke_then_renew_consent
+    description: >
+      Revoke consent, then grant a new consent. The new grant should
+      enable operations.
+    context:
+      tenant_id: tenant-a
+      subject_id: subject-1
+      actor_id: actor-1
+      purpose: profiling
+
+    consent:
+      purpose: profiling
+      allow_write: true
+      allow_read: true
+      allowed_memory_types:
+        - preference
+        - semantic
+      allowed_sensitivity:
+        - public
+        - internal
+
+    messages:
+      - id: msg-1
+        role: user
+        content: I am interested in machine learning.
+
+    expected_candidates:
+      - memory_type: semantic
+        subject_key: interest
+        predicate: topic
+        value: machine learning
+        source_message_id: msg-1
+        explicitly_stated: true
+        sensitivity: public
+
+    expected_memories:
+      - memory_type: semantic
+        subject_key: interest
+        predicate: topic
+        value: machine learning
+        status: active
+        version: 1
+
+
+  - name: partial_revoke_memory_type
+    description: >
+      Grant consent for preference and semantic. Revoke the semantic
+      part by granting new consent without semantic type.
+      Existing semantic memories should be read-protected after the
+      consent for that type is removed.
+    context:
+      tenant_id: tenant-a
+      subject_id: subject-1
+      actor_id: actor-1
+      purpose: profiling
+
+    consent:
+      purpose: profiling
+      allow_write: true
+      allow_read: true
+      allowed_memory_types:
+        - preference
+      allowed_sensitivity:
+        - public
+        - internal
+
+    messages:
+      - id: msg-1
+        role: user
+        content: Keep answers concise.
+
+    expected_candidates:
+      - memory_type: preference
+        subject_key: response
+        predicate: response_length
+        value: concise
+        source_message_id: msg-1
+        explicitly_stated: true
+        sensitivity: public
+
+    expected_memories:
+      - memory_type: preference
+        subject_key: response
+        predicate: response_length
+        value: concise
+        status: active
+        version: 1
+
+
+  - name: multiple_revokes_same_subject
+    description: >
+      Subject grants and revokes consent multiple times.
+      Only the latest active consent should be effective.
+    context:
+      tenant_id: tenant-a
+      subject_id: subject-1
+      actor_id: actor-1
+      purpose: profiling
+
+    consent:
+      purpose: profiling
+      allow_write: true
+      allow_read: true
+      allowed_memory_types:
+        - preference
+      allowed_sensitivity:
+        - public
+
+    messages:
+      - id: msg-1
+        role: user
+        content: I prefer code snippets.
+
+    expected_candidates:
+      - memory_type: preference
+        subject_key: response
+        predicate: output_format
+        value: code snippets
+        source_message_id: msg-1
+        explicitly_stated: true
+        sensitivity: public
+
+    expected_memories:
+      - memory_type: preference
+        subject_key: response
+        predicate: output_format
+        value: code snippets
+        status: active
+        version: 1

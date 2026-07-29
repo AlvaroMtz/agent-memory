@@ -1,0 +1,301 @@
+# Contradiction resolution scenarios — verify that the system detects and
+# resolves contradictions between memories.
+# Maps to REQUIRED_DATASET_CASES: contradiction-duplicate-skipped,
+# contradiction-preference-updated, contradiction-conflicting-preferences,
+# contradiction-semantic-equal-authority-pending-review,
+# contradiction-trusted-tool-vs-user, contradiction-ambiguous-candidate-pending-review,
+# contradiction-temporal-change-valid
+
+scenarios:
+  # 1. Duplicate candidate skipped
+  - name: contradiction-duplicate-skipped
+    description: >
+      If a candidate has the same predicate and value as an existing memory,
+      it is classified as a duplicate and should be skipped.
+    context:
+      tenant_id: tenant-a
+      subject_id: subject-1
+      purpose: testing
+    consent:
+      purpose: testing
+      allow_write: true
+      allow_read: true
+      allowed_memory_types:
+        - preference
+        - semantic
+      allowed_sensitivity:
+        - public
+        - internal
+    messages:
+      - id: msg-1
+        role: user
+        content: I like TypeScript.
+      - id: msg-2
+        role: user
+        content: I like TypeScript.
+    expected_candidates:
+      - memory_type: preference
+        subject_key: code
+        predicate: code_language
+        value: TypeScript
+        source_message_id: msg-1
+        explicitly_stated: true
+        sensitivity: public
+    expected_memories:
+      - memory_type: preference
+        subject_key: code
+        predicate: code_language
+        value: TypeScript
+        status: active
+        version: 1
+    expected_queries: []
+
+  # 2. Preference update (supersedes old)
+  - name: contradiction-preference-updated
+    description: >
+      A user changes their preference. The new value should supersede the old
+      one. The old memory is marked superseded.
+    context:
+      tenant_id: tenant-a
+      subject_id: subject-1
+      purpose: testing
+    consent:
+      purpose: testing
+      allow_write: true
+      allow_read: true
+      allowed_memory_types:
+        - preference
+        - semantic
+      allowed_sensitivity:
+        - public
+        - internal
+    messages:
+      - id: msg-1
+        role: user
+        content: I prefer JavaScript.
+      - id: msg-2
+        role: user
+        content: Actually, I prefer TypeScript now.
+    expected_candidates:
+      - memory_type: preference
+        subject_key: code
+        predicate: code_language
+        value: TypeScript
+        source_message_id: msg-2
+        explicitly_stated: true
+        sensitivity: public
+    expected_memories:
+      - memory_type: preference
+        subject_key: code
+        predicate: code_language
+        value: TypeScript
+        status: active
+        version: 1
+    expected_queries: []
+
+  # 3. Conflicting preferences (same predicate, different authority)
+  - name: contradiction-conflicting-preferences
+    description: >
+      When a user states contradictory preferences about the same topic,
+      the system should resolve them with proper conflict detection.
+    context:
+      tenant_id: tenant-a
+      subject_id: subject-1
+      purpose: testing
+    consent:
+      purpose: testing
+      allow_write: true
+      allow_read: true
+      allowed_memory_types:
+        - preference
+        - semantic
+      allowed_sensitivity:
+        - public
+        - internal
+    messages:
+      - id: msg-1
+        role: user
+        content: I prefer Python.
+      - id: msg-2
+        role: user
+        content: Actually, I prefer Java now.
+    expected_candidates:
+      - memory_type: preference
+        subject_key: code
+        predicate: code_language
+        value: Java
+        source_message_id: msg-2
+        explicitly_stated: true
+        sensitivity: public
+    expected_queries: []
+
+  # 4. Semantic contradiction with equal authority → pending_review
+  - name: contradiction-semantic-equal-authority-pending-review
+    description: >
+      Contradictory semantic facts about the same predicate but different
+      values with equal authority should be flagged for review.
+    context:
+      tenant_id: tenant-a
+      subject_id: subject-1
+      purpose: testing
+    consent:
+      purpose: testing
+      allow_write: true
+      allow_read: true
+      allowed_memory_types:
+        - semantic
+      allowed_sensitivity:
+        - public
+        - internal
+    messages:
+      - id: msg-1
+        role: user
+        content: My current employer is Acme Corp.
+      - id: msg-2
+        role: user
+        content: I work for Beta Inc now.
+    expected_candidates:
+      - memory_type: semantic
+        subject_key: employment
+        predicate: employer
+        value: Beta Inc
+        source_message_id: msg-2
+        explicitly_stated: true
+        sensitivity: public
+    expected_memories:
+      - memory_type: semantic
+        subject_key: employment
+        predicate: employer
+        status: pending_review
+    expected_queries: []
+
+  # 5. Trusted tool vs user
+  - name: contradiction-trusted-tool-vs-user
+    description: >
+      When a trusted tool and user provide conflicting information,
+      the system should detect the contradiction and handle it appropriately.
+    context:
+      tenant_id: tenant-a
+      subject_id: subject-1
+      purpose: testing
+    consent:
+      purpose: testing
+      allow_write: true
+      allow_read: true
+      allowed_memory_types:
+        - preference
+        - semantic
+      allowed_sensitivity:
+        - public
+        - internal
+    messages:
+      - id: msg-1
+        role: trusted_tool
+        content: "Detected user prefers dark mode: true"
+      - id: msg-2
+        role: user
+        content: "Detected user prefers dark mode: false"
+    expected_candidates:
+      - memory_type: preference
+        subject_key: theme
+        predicate: dark_mode
+        value: true
+        source_message_id: msg-1
+        explicitly_stated: true
+        sensitivity: public
+      - memory_type: preference
+        subject_key: theme
+        predicate: dark_mode
+        value: false
+        source_message_id: msg-2
+        explicitly_stated: true
+        sensitivity: public
+    expected_queries: []
+
+  # 6. Ambiguous candidate → pending_review
+  - name: contradiction-ambiguous-candidate-pending-review
+    description: >
+      Ambiguous candidates that could be interpreted multiple ways should be
+      flagged for manual review rather than accepted or rejected.
+    context:
+      tenant_id: tenant-a
+      subject_id: subject-1
+      purpose: testing
+    consent:
+      purpose: testing
+      allow_write: true
+      allow_read: true
+      allowed_memory_types:
+        - preference
+        - semantic
+      allowed_sensitivity:
+        - public
+        - internal
+    messages:
+      - id: msg-1
+        role: user
+        content: My current employer is Acme Corp.
+      - id: msg-2
+        role: user
+        content: I work for Beta Inc now.
+    expected_candidates:
+      - memory_type: semantic
+        subject_key: employment
+        predicate: employer
+        value: Beta Inc
+        source_message_id: msg-2
+        explicitly_stated: true
+        sensitivity: public
+    expected_memories:
+      - memory_type: semantic
+        subject_key: employment
+        predicate: employer
+        status: pending_review
+    expected_queries:
+      - description: pending review memories are not retrievable
+        query: Beta Inc
+        memory_type: semantic
+        max_results: 0
+
+  # 7. Temporal change (valid over time)
+  - name: contradiction-temporal-change-valid
+    description: >
+      Preferences that change over time due to context shifts are valid
+      and should not be treated as contradictions.
+    context:
+      tenant_id: tenant-a
+      subject_id: subject-1
+      purpose: testing
+    consent:
+      purpose: testing
+      allow_write: true
+      allow_read: true
+      allowed_memory_types:
+        - preference
+        - semantic
+      allowed_sensitivity:
+        - public
+        - internal
+    messages:
+      - id: msg-1
+        role: user
+        content: "I prefer Python for backend work."
+      - id: msg-2
+        role: user
+        content: "I prefer TypeScript for frontend work."
+    expected_candidates:
+      - memory_type: preference
+        subject_key: code
+        predicate: code_language
+        value: TypeScript
+        source_message_id: msg-2
+        explicitly_stated: true
+        sensitivity: public
+      - memory_type: preference
+        subject_key: code
+        predicate: code_language
+        value: Python
+        source_message_id: msg-1
+        explicitly_stated: true
+        sensitivity: public
+    expected_queries: []

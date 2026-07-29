@@ -1,0 +1,36 @@
+name: agent-memory-v0.0.1
+title: "agent-memory v0.0.1 — Governed Long-Term Memory for AI Agents"
+status: archived
+description: |
+  All SDD phases completed, verified, and archived.
+
+  Artifacts (canonical — legacy flat format):
+  - openspec/specs/agent-memory-v0.0.1-proposal.md
+  - openspec/specs/agent-memory-v0.0.1-spec.md (15 ACs)
+  - openspec/specs/agent-memory-v0.0.1-design.md (12 ADRs, data model, RLS, security)
+  - openspec/specs/agent-memory-v0.0.1-tasks.md (55 tasks, 8 phases)
+  - openspec/specs/agent-memory-v0.0.1-delivery-plan.md
+
+  Artifacts (change archive):
+  - openspec/changes/archive/2026-07-28-agent-memory-v0.0.1/verify-report.md
+  - openspec/changes/archive/2026-07-28-agent-memory-v0.0.1/sync-report.md
+  - openspec/changes/archive/2026-07-28-agent-memory-v0.0.1/archive-report.md
+
+  Verification: FULL PASS 15/15 (all ACs fully satisfied at final verify).
+  Tests: 334 passed, 3 skipped (PG Docker dependency).
+  9 commits, ~80+ source files.
+
+  Commits (oldest→newest):
+  - 6edee49 — Wave 1: Domain, Contracts & Deterministic Providers
+  - 4483607 — Wave 2: PostgreSQL Backend & Consent/Security
+  - cd21943 — Wave 3: Extraction and Retrieval pipeline
+  - 9ec16e2 — Wave 4: Memory Lab and LangChain Integration
+  - d98c033 — Wave 5: Packaging, CLI, Release
+  - 65a0126 — T8.11/T8.12: Dataset eval CI, all examples
+  - (3 additional commits: contradiction resolver, metrics/CLI/datasets completion, final verification)
+
+  Archived at: 2026-07-28
+  Archived path: openspec/changes/archive/2026-07-28-agent-memory-v0.0.1
+priority: high
+started_at: 2026-07-28
+completed_at: 2026-07-28

@@ -1,0 +1,184 @@
+# Consent grant scenarios — test consent granting, read-only, write-only, and blocked operations.
+
+scenarios:
+  - name: grant_full_consent_then_write_and_read
+    description: >
+      Grant full consent and verify both write and read operations succeed.
+    context:
+      tenant_id: tenant-a
+      subject_id: subject-1
+      actor_id: actor-1
+      purpose: profiling
+
+    consent:
+      purpose: profiling
+      allow_write: true
+      allow_read: true
+      allowed_memory_types:
+        - preference
+        - semantic
+      allowed_sensitivity:
+        - public
+        - internal
+
+    messages:
+      - id: msg-1
+        role: user
+        content: I prefer Python for data science.
+
+    expected_candidates:
+      - memory_type: preference
+        subject_key: code
+        predicate: code_language
+        value: Python
+        source_message_id: msg-1
+        explicitly_stated: true
+        sensitivity: public
+
+    expected_memories:
+      - memory_type: preference
+        subject_key: code
+        predicate: code_language
+        value: Python
+        status: active
+        version: 1
+
+
+  - name: grant_write_only_consent
+    description: >
+      Grant write-only consent. Write succeeds but read is denied.
+    context:
+      tenant_id: tenant-a
+      subject_id: subject-1
+      actor_id: actor-1
+      purpose: profiling
+
+    consent:
+      purpose: profiling
+      allow_write: true
+      allow_read: false
+      allowed_memory_types:
+        - preference
+      allowed_sensitivity:
+        - public
+
+    messages:
+      - id: msg-1
+        role: user
+        content: I prefer TypeScript.
+
+    expected_candidates:
+      - memory_type: preference
+        subject_key: code
+        predicate: code_language
+        value: TypeScript
+        source_message_id: msg-1
+        explicitly_stated: true
+        sensitivity: public
+
+    expected_memories:
+      - memory_type: preference
+        subject_key: code
+        predicate: code_language
+        value: TypeScript
+        status: active
+        version: 1
+
+  - name: grant_read_only_consent
+    description: >
+      Grant read-only consent. Write is blocked; read-only access granted.
+    context:
+      tenant_id: tenant-a
+      subject_id: subject-1
+      actor_id: actor-1
+      purpose: profiling
+
+    consent:
+      purpose: profiling
+      allow_write: false
+      allow_read: true
+      allowed_memory_types:
+        - preference
+        - semantic
+      allowed_sensitivity:
+        - public
+        - internal
+
+    messages:
+      - id: m1
+        role: user
+        content: "I prefer Python."
+
+    expected_accepted_candidates: []
+    expected_memories: []
+    expected_audit:
+      - action: "memory.candidate_rejected"
+
+
+  - name: grant_consent_with_retention_limit
+    description: >
+      Grant consent with a 30-day retention limit. Memories are created
+      under this consent and tracked accordingly.
+    context:
+      tenant_id: tenant-a
+      subject_id: subject-1
+      actor_id: actor-1
+      purpose: temporary
+
+    consent:
+      purpose: temporary
+      allow_write: true
+      allow_read: true
+      allowed_memory_types:
+        - preference
+      allowed_sensitivity:
+        - public
+      retention_days: 30
+
+    messages:
+      - id: msg-1
+        role: user
+        content: Use formal language please.
+
+    expected_candidates:
+      - memory_type: preference
+        subject_key: language
+        predicate: response_language
+        value: formal
+        source_message_id: msg-1
+        explicitly_stated: true
+        sensitivity: public
+
+    expected_memories:
+      - memory_type: preference
+        subject_key: language
+        predicate: response_language
+        value: formal
+        status: active
+        version: 1
+
+
+  - name: no_consent_blocks_write_and_read
+    description: >
+      Without any consent grant, write and read operations are denied.
+    context:
+      tenant_id: tenant-a
+      subject_id: subject-2
+      actor_id: actor-1
+      purpose: profiling
+
+    consent:
+      purpose: profiling
+      allow_write: false
+      allow_read: false
+      allowed_memory_types: []
+      allowed_sensitivity: []
+
+    messages:
+      - id: msg-1
+        role: user
+        content: I like Python.
+
+    expected_accepted_candidates: []
+    expected_memories: []
+    expected_to_fail: true

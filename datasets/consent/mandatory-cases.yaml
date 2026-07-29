@@ -1,0 +1,90 @@
+# Mandatory consent test cases per AC-3 spec
+# Every required dataset scenario MUST have at least one assertion capable of failing.
+
+scenarios:
+  # 1. No consent - write and read blocked
+  - name: consent-none-denies-read-write
+    description: No consent should block both read and write
+    context: {tenant_id: t1, subject_id: s1, purpose: general}
+    consent: {purpose: general, allow_write: false, allow_read: false, allowed_memory_types: [], allowed_sensitivity: []}
+    messages:
+      - {id: m1, role: user, content: "I prefer Python."}
+    expected_accepted_candidates: []
+    expected_memories: []
+
+  # 2. Read-only consent
+  - name: consent-read-only-denies-write
+    description: Read-only consent should block write but allow read
+    context: {tenant_id: t1, subject_id: s1, purpose: general}
+    consent: {purpose: general, allow_write: false, allow_read: true, allowed_memory_types: [preference], allowed_sensitivity: [public]}
+    messages:
+      - {id: m1, role: user, content: "I prefer Python."}
+    expected_accepted_candidates: []
+    expected_memories: []
+
+  # 3. Write-only consent
+  - name: consent-write-only-denies-read
+    description: Write-only consent should block read
+    context: {tenant_id: t1, subject_id: s1, purpose: general}
+    consent: {purpose: general, allow_write: true, allow_read: false, allowed_memory_types: [preference], allowed_sensitivity: [public]}
+    messages:
+      - {id: m1, role: user, content: "I prefer Python."}
+    expected_candidates:
+      - {memory_type: preference, subject_key: code, predicate: code_language, value: Python}
+    expected_accepted_candidates:
+      - {memory_type: preference, subject_key: code, predicate: code_language, value: Python}
+    expected_queries:
+      - {description: "write-only consent denies retrieval", query: "Python", memory_type: preference, max_results: 0, expected_counts: {total: 0}}
+
+  # 4. Type denied
+  - name: consent-memory-type-denied
+    description: Consent that denies specific memory type should block extraction
+    context: {tenant_id: t1, subject_id: s1, purpose: general}
+    consent: {purpose: general, allow_write: true, allow_read: true, allowed_memory_types: [semantic], allowed_sensitivity: [public]}
+    messages:
+      - {id: m1, role: user, content: "I prefer Python."}
+    expected_accepted_candidates: []
+    expected_memories: []
+
+  # 5. Sensitivity denied
+  - name: consent-sensitivity-denied
+    description: Consent that denies sensitivity should block extraction
+    context: {tenant_id: t1, subject_id: s1, purpose: general}
+    consent: {purpose: general, allow_write: true, allow_read: true, allowed_memory_types: [preference], allowed_sensitivity: [public]}
+    messages:
+      - {id: m1, role: user, content: "new password is: swordfish"}
+    expected_accepted_candidates: []
+    expected_memories: []
+
+  # 6. Expired consent
+  - name: consent-expired-denied
+    description: Expired consent should block all operations
+    context: {tenant_id: t1, subject_id: s1, purpose: general}
+    consent: {purpose: general, allow_write: false, allow_read: false, allowed_memory_types: [], allowed_sensitivity: [], retention_days: 0}
+    messages:
+      - {id: m1, role: user, content: "I prefer Python."}
+    expected_accepted_candidates: []
+    expected_memories: []
+
+  # 7. Revoked consent
+  - name: consent-revoked-denied
+    description: Revoked consent should block all operations
+    context: {tenant_id: t1, subject_id: s1, purpose: general}
+    consent: {purpose: general, allow_write: false, allow_read: false, allowed_memory_types: [], allowed_sensitivity: []}
+    messages:
+      - {id: m1, role: user, content: "I prefer Python."}
+    expected_accepted_candidates: []
+    expected_memories: []
+
+  # 8. Consent version change
+  - name: consent-version-change-enforced
+    description: Consent version changes should be tracked
+    context: {tenant_id: t1, subject_id: s1, purpose: general}
+    consent: {purpose: general, allow_write: true, allow_read: true, allowed_memory_types: [preference], allowed_sensitivity: [public]}
+    messages:
+      - {id: m1, role: user, content: "I prefer Python."}
+    expected_candidates:
+      - {memory_type: preference, subject_key: code, predicate: code_language, value: Python}
+    expected_accepted_candidates:
+      - {memory_type: preference, subject_key: code, predicate: code_language, value: Python}
+    expected_memories: [{memory_type: preference, subject_key: code, predicate: code_language, status: active}]

@@ -1,0 +1,262 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install ruff
+      - run: ruff check src tests scripts examples/langchain_agent/agent.py
+      - run: ruff format --check src tests scripts examples/langchain_agent/agent.py
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: |
+          pip install -e ".[dev]"
+      - name: Run tests
+        run: |
+          pytest tests/unit/ tests/contract/ tests/integration/ tests/security/ -q --tb=short
+
+  contract-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -e ".[dev,lab,crypto]"
+      - run: pytest tests/contract/ -q --tb=short
+
+  property-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -e ".[dev,lab,crypto]"
+      - run: pytest tests/property/ -q --tb=short
+
+  migration-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        postgres-version: ["16", "17"]
+      fail-fast: false
+    services:
+      postgres:
+        image: pgvector/pgvector:pg${{ matrix.postgres-version }}
+        env:
+          POSTGRES_DB: agent_memory_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install
+        run: |
+          pip install -e ".[dev,lab,crypto]"
+      - name: Migration test
+        run: |
+          export AGENT_MEMORY_RUN_REAL_POSTGRES=1
+          AGENT_MEMORY_DATABASE__URI="postgresql+psycopg://postgres:postgres@localhost:5432/agent_memory_test" \
+          pytest tests/migrations/ tests/integration/test_postgres_real.py -q --tb=short
+
+  type-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -e ".[dev,lab,crypto]"
+      - run: mypy src/agent_memory
+
+  security-isolation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -e ".[dev,lab,crypto]"
+      - run: pytest tests/security -q --tb=short
+
+  security-prompt-injection:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -e ".[dev,lab,crypto]"
+      - run: python -m agent_memory.cli.main scenario run datasets/prompt_injection --format json
+
+  eval-extraction:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -e ".[dev,lab,crypto]"
+      - run: python -m agent_memory.cli.main scenario run datasets/extraction --format junit
+
+  eval-retrieval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -e ".[dev,lab,crypto]"
+      - run: python -m agent_memory.cli.main scenario run datasets/retrieval --format junit
+
+  eval-consent:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -e ".[dev,lab,crypto]"
+      - run: python -m agent_memory.cli.main scenario run datasets/consent --format junit
+
+  eval-multi-tenant:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -e ".[dev,lab,crypto]"
+      - run: python -m agent_memory.cli.main scenario run datasets/multi-tenant --format junit
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Build package
+        run: |
+          pip install build
+          python -m build
+      - name: Check install from wheel
+        run: |
+          pip install dist/*.whl
+          python -c "import agent_memory; print(f'agent-memory v{agent_memory.__version__}')"
+
+  examples:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install
+        run: |
+          pip install -e ".[dev,lab,crypto]"
+      - name: Run all examples
+        run: |
+          for ex in examples/*/; do
+            d="$(basename "$ex")"
+            py="${ex}${d}.py"
+            if [ -f "$py" ]; then
+              echo "=== $d ==="
+              python "$py"
+              echo "exit: $?"
+            fi
+          done
+      - name: Run langchain agent example
+        run: python examples/langchain_agent/agent.py
+
+  dataset-eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install
+        run: pip install -e ".[dev,lab,crypto]"
+      - name: Verify datasets load
+        run: |
+          python -c "
+          import sys
+          sys.path.insert(0, 'src')
+          from pathlib import Path
+          from agent_memory.evaluation.runner import load_dataset
+
+          for dataset_dir in ['datasets']:
+              d = Path(dataset_dir)
+              if d.is_dir():
+                  scenarios = load_dataset(str(d))
+                  print(f'{dataset_dir}: {len(scenarios)} scenarios loaded')
+                  for s in scenarios:
+                      print(f'  - {s.name}: {len(s.messages)} messages')
+                  assert len(scenarios) > 0, f'No scenarios in {dataset_dir}'
+          "
+
+  release-gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -e ".[dev,lab,crypto]"
+      - run: make release-check
+
+  dependency-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install pip-audit
+      - run: pip-audit .
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

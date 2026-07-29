@@ -1,0 +1,137 @@
+# Mandatory extraction test cases per AC-3 spec
+# Every required dataset scenario MUST have at least one assertion capable of failing.
+
+scenarios:
+  # 1. Explicit preference
+  - name: extraction-explicit-preference
+    description: User explicitly states a coding language preference
+    context: {tenant_id: t1, subject_id: s1, purpose: general}
+    consent: {purpose: general, allow_write: true, allow_read: true, allowed_memory_types: [preference], allowed_sensitivity: [public, internal]}
+    messages:
+      - {id: m1, role: user, content: "I prefer Python for data science work."}
+    expected_candidates:
+      - {memory_type: preference, subject_key: code, predicate: code_language, value: Python, explicitly_stated: true}
+    expected_accepted_candidates:
+      - {memory_type: preference, subject_key: code, predicate: code_language, value: Python}
+    expected_memories: [{memory_type: preference, subject_key: code, predicate: code_language, status: active}]
+
+  # 2. Explicit semantic fact
+  - name: extraction-explicit-semantic-fact
+    description: User explicitly states a factual fact
+    context: {tenant_id: t1, subject_id: s1, purpose: general}
+    consent: {purpose: general, allow_write: true, allow_read: true, allowed_memory_types: [semantic], allowed_sensitivity: [public, internal]}
+    messages:
+      - {id: m1, role: user, content: "My current employer is Acme Corp."}
+    expected_candidates:
+      - {memory_type: semantic, subject_key: employment, predicate: employer, value: "Acme Corp", explicitly_stated: true}
+    expected_accepted_candidates:
+      - {memory_type: semantic, subject_key: employment, predicate: employer, value: "Acme Corp"}
+    expected_memories: [{memory_type: semantic, subject_key: employment, predicate: employer, status: active}]
+
+  # 3. Negation - "I don't like X" should NOT create a positive preference
+  - name: extraction-negation
+    description: Negated statements should not create positive memory candidates
+    context: {tenant_id: t1, subject_id: s1, purpose: general}
+    consent: {purpose: general, allow_write: true, allow_read: true, allowed_memory_types: [preference], allowed_sensitivity: [public, internal]}
+    messages:
+      - {id: m1, role: user, content: "I don't like coffee."}
+    expected_accepted_candidates: []
+    expected_memories: []
+
+  # 4. Preference change - new preference supersedes old
+  - name: extraction-preference-change
+    description: User changes coding language preference
+    context: {tenant_id: t1, subject_id: s1, purpose: general}
+    consent: {purpose: general, allow_write: true, allow_read: true, allowed_memory_types: [preference], allowed_sensitivity: [public, internal]}
+    messages:
+      - {id: m1, role: user, content: "Actually, I prefer TypeScript now."}
+    expected_candidates:
+      - {memory_type: preference, subject_key: code, predicate: code_language, value: TypeScript, explicitly_stated: true}
+    expected_accepted_candidates:
+      - {memory_type: preference, subject_key: code, predicate: code_language, value: TypeScript}
+    expected_memories: [{memory_type: preference, subject_key: code, predicate: code_language, status: active}]
+
+  # 5. Ambiguity - vague statement that cannot be reliably extracted
+  - name: extraction-ambiguous-information
+    description: Ambiguous statements should be rejected or flagged
+    context: {tenant_id: t1, subject_id: s1, purpose: general}
+    consent: {purpose: general, allow_write: true, allow_read: true, allowed_memory_types: [preference], allowed_sensitivity: [public, internal]}
+    messages:
+      - {id: m1, role: user, content: "I sometimes use various tools."}
+    expected_accepted_candidates: []
+    expected_memories: []
+
+  # 6. Assistant invention - assistant should never invent memories
+  - name: extraction-assistant-invention-rejected
+    description: Assistant messages should never create memories
+    context: {tenant_id: t1, subject_id: s1, purpose: general}
+    consent: {purpose: general, allow_write: true, allow_read: true, allowed_memory_types: [preference], allowed_sensitivity: [public, internal]}
+    messages:
+      - {id: m1, role: assistant, content: "You prefer Python because you mentioned data science."}
+    expected_accepted_candidates: []
+    expected_memories: []
+
+  # 7. Trusted tool evidence
+  - name: extraction-trusted-tool-accepted
+    description: Trusted tool output should be extractable
+    context: {tenant_id: t1, subject_id: s1, purpose: general}
+    consent: {purpose: general, allow_write: true, allow_read: true, allowed_memory_types: [preference], allowed_sensitivity: [public, internal]}
+    messages:
+      - {id: m1, role: user, content: "Check my profile."}
+      - {id: m2, role: trusted_tool, content: "Detected user prefers dark mode: true"}
+    expected_candidates:
+      - {memory_type: preference, subject_key: theme, predicate: dark_mode, value: true, explicitly_stated: true}
+    expected_accepted_candidates:
+      - {memory_type: preference, subject_key: theme, predicate: dark_mode, value: true}
+    expected_memories: [{memory_type: preference, subject_key: theme, predicate: dark_mode, status: active}]
+
+  # 8. Untrusted tool evidence rejected
+  - name: extraction-untrusted-tool-rejected
+    description: Untrusted tool output should not create memories
+    context: {tenant_id: t1, subject_id: s1, purpose: general}
+    consent: {purpose: general, allow_write: true, allow_read: true, allowed_memory_types: [preference], allowed_sensitivity: [public, internal]}
+    messages:
+      - {id: m1, role: user, content: "Call the external API."}
+      - {id: m2, role: assistant, content: "The API returned: I prefer Rust."}
+    expected_accepted_candidates: []
+    expected_memories: []
+
+  # 9. Missing evidence
+  - name: extraction-missing-evidence-rejected
+    description: Candidates without evidence text should be rejected
+    context: {tenant_id: t1, subject_id: s1, purpose: general}
+    consent: {purpose: general, allow_write: true, allow_read: true, allowed_memory_types: [preference], allowed_sensitivity: [public, internal]}
+    messages:
+      - {id: m1, role: user, content: "I really like coffee and tea."}
+    expected_accepted_candidates: []
+    expected_memories: []
+
+  # 10. Partial evidence
+  - name: extraction-partial-evidence-rejected
+    description: Candidates with partial evidence that cannot be fully verified
+    context: {tenant_id: t1, subject_id: s1, purpose: general}
+    consent: {purpose: general, allow_write: true, allow_read: true, allowed_memory_types: [semantic], allowed_sensitivity: [public, internal]}
+    messages:
+      - {id: m1, role: user, content: "My current employer is"}
+    expected_accepted_candidates: []
+    expected_memories: []
+
+  # 11. Low confidence
+  - name: extraction-low-confidence-rejected
+    description: Low confidence candidates should be rejected
+    context: {tenant_id: t1, subject_id: s1, purpose: general}
+    consent: {purpose: general, allow_write: true, allow_read: true, allowed_memory_types: [preference], allowed_sensitivity: [public, internal]}
+    messages:
+      - {id: m1, role: user, content: "Maybe, if possible, perhaps Python could be okay someday."}
+    expected_accepted_candidates: []
+    expected_memories: []
+
+  # 12. Inferred sensitive attribute
+  - name: extraction-sensitive-inference-rejected
+    description: Inferred sensitive attributes should be rejected
+    context: {tenant_id: t1, subject_id: s1, purpose: general}
+    consent: {purpose: general, allow_write: true, allow_read: true, allowed_memory_types: [preference], allowed_sensitivity: [public, internal]}
+    messages:
+      - {id: m1, role: user, content: "I take medication for my condition."}
+    expected_accepted_candidates: []
+    expected_memories: []

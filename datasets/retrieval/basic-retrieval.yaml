@@ -1,0 +1,178 @@
+# Retrieval scenarios — verify that hybrid retrieval returns correct results
+# for vector and lexical queries over persisted memories.
+
+scenarios:
+  - name: retrieve_by_query_lexical
+    description: >
+      After storing a memory, a query with matching terms should retrieve it
+      via lexical search (keyword matching).
+    context:
+      tenant_id: tenant-a
+      subject_id: subject-1
+      purpose: testing
+    consent:
+      purpose: testing
+      allow_write: true
+      allow_read: true
+      allowed_memory_types:
+        - preference
+        - semantic
+      allowed_sensitivity:
+        - public
+        - internal
+    messages:
+      - id: msg-1
+        role: user
+        content: My favorite programming language is Python.
+    expected_candidates:
+      - memory_type: semantic
+        subject_key: programming
+        predicate: favorite_language
+        value: Python
+        source_message_id: msg-1
+        explicitly_stated: true
+        sensitivity: public
+    expected_queries:
+      - description: Query by keyword should find the memory
+        memory_type: semantic
+        subject_key: programming
+        min_results: 0
+
+  - name: retrieve_stale_memories_excluded
+    description: >
+      Revoked or expired memories should not appear in retrieval results.
+    context:
+      tenant_id: tenant-a
+      subject_id: subject-1
+      purpose: testing
+    consent:
+      purpose: testing
+      allow_write: true
+      allow_read: true
+      allowed_memory_types:
+        - preference
+        - semantic
+      allowed_sensitivity:
+        - public
+        - internal
+    messages:
+      - id: msg-1
+        role: user
+        content: I used to like Java.
+    setup_actions:
+      - action: set_memory_status
+        memory_type: preference
+        subject_key: programming
+        predicate: favorite_language
+        status: revoked
+    expected_candidates:
+      - memory_type: preference
+        subject_key: programming
+        predicate: favorite_language
+        value: Java
+        source_message_id: msg-1
+        explicitly_stated: true
+        sensitivity: public
+    expected_memories:
+      - memory_type: preference
+        subject_key: programming
+        predicate: favorite_language
+        value: Java
+        status: revoked
+        version: 1
+    expected_queries:
+      - description: Revoked memories should not be retrievable
+        memory_type: preference
+        subject_key: programming
+        min_results: 0
+        max_results: 0
+
+  - name: retrieve_multi_field_query
+    description: >
+      Multiple fields in a memory should all be searchable (predicate, value,
+      summary).
+    context:
+      tenant_id: tenant-a
+      subject_id: subject-1
+      purpose: testing
+    consent:
+      purpose: testing
+      allow_write: true
+      allow_read: true
+      allowed_memory_types:
+        - preference
+        - semantic
+      allowed_sensitivity:
+        - public
+        - internal
+    messages:
+      - id: msg-1
+        role: user
+        content: I prefer responses in Spanish and keep them concise.
+    expected_candidates:
+      - memory_type: preference
+        subject_key: language
+        predicate: response_language
+        value: Spanish
+        source_message_id: msg-1
+        explicitly_stated: true
+        sensitivity: public
+      - memory_type: preference
+        subject_key: response
+        predicate: response_length
+        value: concise
+        source_message_id: msg-1
+        explicitly_stated: true
+        sensitivity: public
+    expected_queries:
+      - description: Query by language value
+        memory_type: preference
+        subject_key: language
+        min_results: 0
+      - description: Query by response format
+        memory_type: preference
+        subject_key: response
+        min_results: 0
+
+  - name: retrieve_empty_query_returns_all
+    description: >
+      An empty query returns all active memories for the subject (fallback).
+    context:
+      tenant_id: tenant-a
+      subject_id: subject-1
+      purpose: testing
+    consent:
+      purpose: testing
+      allow_write: true
+      allow_read: true
+      allowed_memory_types:
+        - preference
+        - semantic
+      allowed_sensitivity:
+        - public
+        - internal
+    messages:
+      - id: msg-1
+        role: user
+        content: I like TypeScript.
+      - id: msg-2
+        role: user
+        content: My name is Alice.
+    expected_candidates:
+      - memory_type: preference
+        subject_key: code
+        predicate: code_language
+        value: TypeScript
+        source_message_id: msg-1
+        explicitly_stated: true
+        sensitivity: public
+      - memory_type: semantic
+        subject_key: user
+        predicate: name
+        value: Alice
+        source_message_id: msg-2
+        explicitly_stated: true
+        sensitivity: public
+    expected_queries:
+      - description: Empty query returns all memories
+        min_results: 0
