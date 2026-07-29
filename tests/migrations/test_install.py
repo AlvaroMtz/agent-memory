@@ -11,7 +11,6 @@ pytestmark = [
         not os.environ.get("AGENT_MEMORY_DATABASE__URI"),
         reason="AGENT_MEMORY_DATABASE__URI not set",
     ),
-    pytest.mark.asyncio,
 ]
 
 
@@ -24,7 +23,7 @@ def database_url() -> str:
     )
 
 
-async def test_alembic_can_run_migrations():
+def test_alembic_can_run_migrations():
     """Verify alembic migration script generation works."""
     from alembic.config import Config
     from alembic.script import ScriptDirectory
@@ -35,7 +34,7 @@ async def test_alembic_can_run_migrations():
     assert len(heads) >= 1, "No migration heads found"
 
 
-async def test_alembic_heads_match_revision():
+def test_alembic_heads_match_revision():
     """Verify the latest migration head is consistent."""
     from alembic.config import Config
     from alembic.script import ScriptDirectory
@@ -49,7 +48,7 @@ async def test_alembic_heads_match_revision():
         assert rev.doc, f"Revision {head} has no doc string"
 
 
-async def test_migration_idempotency():
+def test_migration_idempotency():
     """Verify alembic stamp head can be run multiple times."""
     from alembic.command import check
     from alembic.config import Config

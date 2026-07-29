@@ -36,6 +36,11 @@ from agent_memory.postgres.backend import PostgresBackend
 from agent_memory.providers.deterministic_embeddings import DeterministicEmbeddingProvider
 from agent_memory.providers.rule_based_extractor import RuleBasedExtractor
 
+pytestmark = pytest.mark.skipif(
+    os.environ.get("AGENT_MEMORY_RUN_REAL_POSTGRES") != "1",
+    reason="real PostgreSQL/Testcontainers tests require AGENT_MEMORY_RUN_REAL_POSTGRES=1",
+)
+
 
 @pytest.fixture(scope="session")
 def postgres_uri() -> str:
